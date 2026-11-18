@@ -30,27 +30,6 @@ so every subsequent feature lands against real verification.
   Exit criterion: committing a synthetic secret is blocked by `pre-commit`, and
   missing `.env` keys fail `just dev` with a clear message.
 
-## Open questions before Phase 0 code
-
-Resolve these when resuming the session before writing Phase 0 application code:
-
-1. **Host CLI tools:** Confirm `just`, `pre-commit`, and `gh` are available via
-   MacPorts (`sudo port install just pre-commit gh`) and run
-   `pre-commit install`.
-2. **Local branching cadence (pre-GitHub):** Merge green `feature/*` branches
-   into `develop` (`--no-ff`) automatically as slices complete, or pause for
-   human review before each local merge?
-3. **Synthetic/mock camera for `just dev`:** Include a built-in synthetic test
-   camera (sky/clock progression frames + mock HTTP/RTSP source) so `just dev`
-   seeds playable Mode 1 & Mode 2 history without live cameras?
-4. **DST behavior in Mode 2:** Evaluate target time strictly in local
-   wall-clock time (`12:00 CST` / `12:00 CDT`), or also offer a fixed
-   standard-time offset toggle so outdoor sun position does not jump on DST
-   transitions?
-5. **MP4 export options:** Default to native full camera resolution (H.264
-   `yuv420p`) with selectable FPS (`10`/`24`/`30`/`60`), output resolution
-   (`Native`/`4K`/`1080p`), and optional timestamp watermark?
-
 ## Verification
 
 Phase 0 complete when:
@@ -68,17 +47,24 @@ Phase 0 complete when:
   session authentication, `BOOTSTRAP_ADMIN_PASSWORD` seeding + first-run UI
   setup wizard, and `test_guardian_role_boundaries.py`.
 - **Web-UI camera management & encrypted secret store:** Admin CRUD for cameras
-  (RTSP stream and HTTP(S) snapshot adapters), Fernet credential encryption at
-  rest (`test_guardian_secret_encryption.py`), and live "Test Capture" endpoint.
-- **Scheduled capture engine & dual-tier storage:** Per-camera interval
-  scheduler writing untouched full-res originals (`YYYY/MM/DD`) + 1080p WebP
-  previews, indexed in SQLite with UTC + camera IANA timezone metadata.
+  (RTSP stream, HTTP(S) snapshot, and dev synthetic adapters), Fernet credential
+  encryption at rest (`test_guardian_secret_encryption.py`), and live "Test
+  Capture" endpoint.
+- **Scheduled capture engine, dual-tier storage & synthetic dev seed:**
+  Per-camera interval scheduler writing untouched full-res originals
+  (`YYYY/MM/DD`) + 1080p WebP previews, indexed in SQLite with UTC + camera IANA
+  timezone metadata, plus multi-month synthetic sky/clock seed history in
+  `just dev`.
 - **Mode 1 & Mode 2 query engine + browser frame player:** Frame-manifest API
-  with `test_guardian_frame_selection.py`, interactive React canvas/sequence
-  player (timeline scrubbing, FPS control, full-res zoom/download).
-- **On-demand FFmpeg MP4 export & ephemeral TTL cache:** Background full-res MP4
-  render jobs with progress polling, browser download, and automatic 24-hour TTL
-  cache reaper.
+  supporting both local wall-clock and fixed standard-time offset Mode 2 DST
+  evaluation (`test_guardian_frame_selection.py`), plus interactive React
+  canvas/sequence player (timeline scrubbing, FPS control, full-res
+  zoom/download).
+- **On-demand FFmpeg MP4 export & ephemeral TTL cache:** Background H.264
+  (`yuv420p`) MP4 render jobs with selectable FPS (`10`/`24`/`30`/`60`), output
+  resolution (`Native`/`4K`/`1080p`, default `Native`), optional burned-in
+  timestamp watermark, progress polling, browser download, and automatic 24-hour
+  TTL cache reaper.
 - **End-to-end & accessibility gate:** Playwright + `@axe-core/playwright`
   covering Admin camera setup and Viewer Mode 1 / Mode 2 playback & export.
 - **Phase 2 — Mode 3 recurring daily window / solar-event timelapses:**
