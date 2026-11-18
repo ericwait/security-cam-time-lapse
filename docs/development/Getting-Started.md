@@ -6,10 +6,10 @@
 
 ## Prerequisites
 
-Install on the host:
+Install on the host (via MacPorts):
 
 ```bash
-brew install just pre-commit
+sudo port install just pre-commit gh
 ```
 
 Plus a running Docker Engine with Compose v2 (`docker info` and
@@ -69,7 +69,7 @@ anything irreversible.
 ## Troubleshooting
 
 - **`just: command not found` or `pre-commit: command not found`:** Install host
-  prerequisites (`brew install just pre-commit`), then run
+  prerequisites (`sudo port install just pre-commit`), then run
   `pre-commit install`.
 - **Docker daemon unreachable:** Start OrbStack / Docker Desktop and confirm
   `docker info` succeeds before running `just dev`.

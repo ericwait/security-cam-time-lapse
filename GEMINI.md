@@ -76,7 +76,7 @@ Ask before, never assume: creating remotes, pushing or opening PRs, tagging or r
 
 ## Gotchas — traps that have cost time
 
-- **Host CLI availability:** `just` and `pre-commit` are host prerequisites (`brew install just pre-commit`); Python, `uv`, Node, and `ffmpeg` run inside containers via `docker compose` so host Python/Node versions (e.g. Python 3.15 bleeding-edge wheels) cannot break builds.
+- **Host CLI availability:** `just` and `pre-commit` are host prerequisites via MacPorts (`sudo port install just pre-commit gh`); Python, `uv`, Node, and `ffmpeg` run inside containers via `docker compose` so host Python/Node versions (e.g. Python 3.15 bleeding-edge wheels) cannot break builds.
 - **DST wall-clock traps:** Mode 2 queries ("12:00 PM Jan 1 – Jun 1") cross Daylight Saving Time. Always store UTC instants alongside the camera's IANA timezone name — never fixed UTC offsets — and test changes against `test_guardian_frame_selection.py`.
 
 ## Maintaining This File
