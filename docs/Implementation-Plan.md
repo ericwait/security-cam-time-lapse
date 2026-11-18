@@ -1,5 +1,6 @@
-> Status: Phase 1 in progress | Audience: contributors and agents planning next
-> work | See also: [docs/README.md](README.md), [../CHANGELOG.md](../CHANGELOG.md)
+> Status: Phase 1 complete — Phase 2 planned | Audience: contributors and agents
+> planning next work | See also: [docs/README.md](README.md),
+> [../CHANGELOG.md](../CHANGELOG.md)
 
 <!--
 PLAN-DOC LIFECYCLE — read before editing.
@@ -9,58 +10,55 @@ evidence line in Progress log below. Keep one phase in progress at a time.
 
 # Implementation plan
 
-## Phase 1 — Core capture, playback & export
+## Phase 2 — Mode 3 recurring daily window / solar-event timelapses
 
-Deliver the end-to-end Phase 1 stakeholder contract across vertical slices,
-starting with authentication and role boundaries:
+Extend selection and scheduling beyond single daily instants so viewers can
+watch multi-frame daily windows (such as sunset each evening across seasons):
 
-- **Slice 1 — Multi-user auth & bootstrap onboarding:** `Admin` and `Viewer`
-  accounts, signed session authentication, `BOOTSTRAP_ADMIN_PASSWORD` seeding +
-  first-run UI setup wizard, Admin user management endpoints/UI, and
-  `test_guardian_role_boundaries.py`.
-- **Slice 2 — Web-UI camera management & encrypted secret store:** Admin CRUD
-  for cameras (RTSP stream, HTTP(S) snapshot, and dev synthetic adapters),
-  Fernet credential encryption at rest (`test_guardian_secret_encryption.py`),
-  and live "Test Capture" endpoint.
-- **Slice 3 — Scheduled capture engine, dual-tier storage & synthetic dev seed:**
-  Per-camera interval scheduler writing untouched full-res originals
-  (`YYYY/MM/DD`) + 1080p WebP previews, indexed in SQLite with UTC + camera IANA
-  timezone metadata, plus multi-month synthetic sky/clock seed history in
-  `just dev`.
-- **Slice 4 — Mode 1 & Mode 2 query engine + browser frame player:**
-  Frame-manifest API supporting both local wall-clock and fixed standard-time
-  offset Mode 2 DST evaluation (`test_guardian_frame_selection.py`), plus
-  interactive React canvas/sequence player (timeline scrubbing, FPS control,
-  full-res zoom/download).
-- **Slice 5 — On-demand FFmpeg MP4 export & ephemeral TTL cache:** Background
-  H.264 (`yuv420p`) MP4 render jobs with selectable FPS (`10`/`24`/`30`/`60`),
-  output resolution (`Native`/`4K`/`1080p`, default `Native`), optional
-  burned-in timestamp watermark, progress polling, browser download, and
-  automatic 24-hour TTL cache reaper.
+- **Camera coordinates & astronomical event solver:** Optional latitude,
+  longitude, and elevation per camera to compute civil dawn, sunrise, solar
+  noon, sunset, and civil dusk in the camera's IANA timezone without external
+  network dependencies.
+- **Mode 3 query engine & guardian coverage:** Multi-frame daily window queries
+  (both fixed local/standard clock spans and `solar_event ± offset_minutes`
+  windows across a date range), extending `test_guardian_frame_selection.py`.
+- **Event-window burst capture schedules:** Optional higher-frequency capture
+  windows around daily or solar events while keeping normal baseline intervals
+  outside the window.
+- **Multi-day clip transitions in player & MP4 exporter:** Day-boundary markers
+  in the browser sequence scrubber and optional subtle crossfade / day-title
+  cards in rendered MP4 exports.
 
 ## Verification
 
-Phase 1 complete when:
+Phase 2 complete when:
 
-- [ ] `Admin` and `Viewer` workflows pass unit, integration, and guardian suites
-      (`test_guardian_role_boundaries.py`,
-      `test_guardian_secret_encryption.py`,
-      `test_guardian_frame_selection.py`).
-- [ ] `just dev` seeds a playable multi-month synthetic camera spanning DST, and
-      both browser scrubbing and FFmpeg MP4 export work out of the box.
-- [ ] `just e2e` passes Playwright + `@axe-core/playwright` across Admin camera
-      setup and Viewer Mode 1 / Mode 2 playback & export.
+- [ ] Mode 3 fixed-window and solar-event queries pass unit, integration, and
+      updated `test_guardian_frame_selection.py` suites across DST and polar/high-latitude
+      edge cases.
+- [ ] `just e2e` passes Playwright + `@axe-core/playwright` for Mode 3 browsing
+      and export.
 - [ ] `just lint`, `just typecheck`, `just schema-drift`, and `just test` exit 0.
 
 ## Backlog
 
-- **Phase 2 — Mode 3 recurring daily window / solar-event timelapses:**
-  Multi-frame daily window queries (e.g., sunset each day across dates),
-  astronomical sun-time calculation per camera location, and optional burst
-  capture schedules around solar events.
+- **Archive retention & cold-storage export tools:** Optional operator-triggered
+  archive bundle export and integrity verification CLI (`python -m app.cli verify-archive`).
 
 ## Progress log
 
+- **2026-11-18** — Phase 1 core capture, playback & export shipped (`develop`):
+  multi-user `Admin`/`Viewer` session auth + first-run bootstrap wizard, Web-UI
+  camera CRUD (RTSP, HTTP Basic/Digest/Bearer, and synthetic adapters) with
+  HKDF-Fernet credential encryption at rest, scheduled dual-tier `YYYY/MM/DD`
+  original JPEG + 1080p WebP capture engine, DST-spanning synthetic seed
+  history, Mode 1 & Mode 2 (`wall_clock` + `standard_offset`) interactive React
+  sequence player with full-res inspection, on-demand H.264 (`yuv420p`) FFmpeg
+  MP4 export (`10`/`24`/`30`/`60` FPS, `Native`/`4K`/`1080p`, historical
+  `drawtext` timestamp watermark) with 24h TTL cache reaping, all three guardian
+  suites (`99/99` Python tests at `93%` coverage, `5/5` Vitest tests), and full
+  Playwright + `@axe-core/playwright` E2E verification (`3/3` specs, `0` a11y
+  violations).
 - **2026-11-18** — Phase 0 engineering substrate shipped (`feature/phase-0-substrate`):
   containerized FastAPI + React/Vite + SQLite WAL + Alembic pipeline, pinned
   `uv.lock` and `package-lock.json` lockfiles, `pre-commit` (`gitleaks` +

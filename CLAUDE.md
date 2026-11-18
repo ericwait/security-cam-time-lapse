@@ -4,7 +4,7 @@
 
 **Security Cam Time-Lapse** — a self-hosted container that captures full-resolution still images from security cameras on a schedule and lets `Admin` and `Viewer` users interactively scrub or export dynamic timelapses in a web UI.
 
-**Status:** In development (Phase 1 — Core capture, playback & export).
+**Status:** Phase 1 complete on `develop` (Core capture, playback & export shipped; Phase 2 planned).
 
 ## Goal & Guiding Principle
 
@@ -46,7 +46,7 @@ justfile                Canonical commands — the entry point for every operati
 
 ## Current State / Active Work
 
-Phase 0 engineering substrate (FastAPI + React/Vite + SQLite WAL + Alembic + non-root Docker image, pinned lockfiles, and green unit/integration/e2e+axe `just` gates) is complete on `develop` (`0.1.0-alpha`). Active focus: **Phase 1 — Core capture, playback & export** (starting with Slice 1: multi-user auth, bootstrap onboarding, and `test_guardian_role_boundaries.py`). See [`docs/Implementation-Plan.md`](docs/Implementation-Plan.md).
+Phase 0 substrate and **Phase 1 — Core capture, playback & export** (multi-user `Admin`/`Viewer` auth + bootstrap wizard, encrypted RTSP/HTTP/synthetic camera management, scheduled dual-tier `YYYY/MM/DD` original + 1080p WebP capture, Mode 1 & Mode 2 `wall_clock`/`standard_offset` browser sequence player, on-demand H.264 MP4 export with TTL cache reaping, all three guardian suites, and Playwright + `axe` E2E verification) are complete on `develop` (`0.1.0-alpha`). Next planned milestone: **Phase 2 — Mode 3 recurring daily window / solar-event timelapses**. See [`docs/Implementation-Plan.md`](docs/Implementation-Plan.md).
 
 ## Conventions
 
@@ -78,6 +78,7 @@ Ask before, never assume: creating remotes, pushing or opening PRs, tagging or r
 
 - **Host CLI availability:** `just` and `pre-commit` are host prerequisites via MacPorts (`sudo port install just pre-commit gh`); Python, `uv`, Node, and `ffmpeg` run inside containers via `docker compose` so host Python/Node versions (e.g. Python 3.15 bleeding-edge wheels) cannot break builds.
 - **DST wall-clock traps:** Mode 2 queries ("12:00 PM Jan 1 – Jun 1") cross Daylight Saving Time. Always store UTC instants alongside the camera's IANA timezone name — never fixed UTC offsets — and test changes against `test_guardian_frame_selection.py`.
+- **SQLite naive UTC reads & `alembic check`:** SQLAlchemy's SQLite dialect returns `DateTime(timezone=True)` columns as naive `datetime` objects representing UTC; normalize via `ensure_utc` before comparing or passing to `selection.py`/`exporter.py`, and avoid `server_default` / `CheckConstraint` on SQLite tables so `just schema-drift` (`alembic check`) reflects cleanly.
 
 ## Maintaining This File
 

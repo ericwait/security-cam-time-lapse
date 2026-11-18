@@ -53,6 +53,7 @@ services:
       CI: ${CI:-}
       E2E_BASE_URL: "http://web:5173"
       E2E_API_URL: "http://app:8000"
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
     volumes:
       - ./tests/e2e/specs:/e2e/specs:ro
       - ./tests/e2e/playwright.config.ts:/e2e/playwright.config.ts:ro
