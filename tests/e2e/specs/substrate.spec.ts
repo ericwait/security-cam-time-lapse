@@ -10,8 +10,8 @@ interface HealthResponse {
 
 const apiBaseUrl = (process.env.E2E_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
-test.describe("Phase 0 engineering substrate", () => {
-  test("reports healthy SQLite WAL status in the UI and passes axe accessibility checks", async ({
+test.describe("Unauthenticated sign-in shell & health readiness", () => {
+  test("reports healthy SQLite WAL status, renders Sign-In form, and passes axe accessibility checks", async ({
     page,
     request,
   }) => {
@@ -76,6 +76,13 @@ test.describe("Phase 0 engineering substrate", () => {
     await expect(healthCard).toContainText("Online");
     await expect(healthCard).toContainText("SQLite WAL");
     await expect(healthCard.getByRole("alert")).toHaveCount(0);
+
+    const loginForm = page.getByTestId("login-form");
+    await expect(loginForm).toBeVisible();
+    await expect(page.getByRole("heading", { level: 2, name: "Sign In" })).toBeVisible();
+    await expect(loginForm.getByLabel("Username")).toBeVisible();
+    await expect(loginForm.getByLabel("Password")).toBeVisible();
+    await expect(loginForm.getByRole("button", { name: "Sign In" })).toBeVisible();
 
     const accessibilityScanResults = await new AxeBuilder({ page }).analyze();
     expect(accessibilityScanResults.violations).toEqual([]);

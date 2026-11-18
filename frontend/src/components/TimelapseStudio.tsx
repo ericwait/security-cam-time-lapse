@@ -648,7 +648,7 @@ export function TimelapseStudio() {
                   }}
                   disabled={frames.length <= 1}
                 >
-                  Prev
+                  Previous
                 </button>
                 <button
                   type="button"

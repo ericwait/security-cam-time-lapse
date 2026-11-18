@@ -17,7 +17,12 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Containerized FastAPI + React/Vite + SQLite (WAL) application substrate with `/api/health` readiness reporting, Alembic schema migrations, non-root single-image runtime packaging, and accessible web UI shell.
+- Multi-user `Admin` and `Viewer` session authentication, `BOOTSTRAP_ADMIN_PASSWORD` initial seeding, first-run Web UI admin onboarding wizard, and self-service password rotation.
+- Admin Console in the Web UI for managing RTSP, HTTP(S) (`Basic`/`Digest`/`Bearer`), and synthetic cameras with HKDF-Fernet encrypted credentials at rest, live connection preview testing, manual capture triggers, user management, system defaults, and host volume capacity telemetry.
+- Scheduled dual-tier capture pipeline preserving untouched full-resolution JPEG originals under `<camera>/<YYYY>/<MM>/<DD>/` alongside 1080p WebP previews, plus deterministic DST-spanning synthetic courtyard camera history seeded by `just dev`.
+- Interactive Timelapse Studio supporting Mode 1 (continuous window) and Mode 2 (daily time-of-day slice with local wall-clock vs. fixed standard-time offset DST evaluation), instant WebP sequence scrubbing, variable playback speed, and single-frame full-resolution zoom/download.
+- On-demand H.264 (`yuv420p`) FFmpeg MP4 video export with selectable FPS (`10`/`24`/`30`/`60`), output resolution (`Native`/`4K`/`1080p`), optional per-frame historical timestamp watermark, live render progress, and automatic ephemeral TTL cache cleanup.
+- Containerized FastAPI + React/Vite + SQLite (WAL) application substrate with `/api/health` readiness reporting, Alembic schema migrations, and non-root single-image runtime packaging.
 
 ### Changed
 
