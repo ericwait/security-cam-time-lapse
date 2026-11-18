@@ -9,6 +9,8 @@ from app.config import Settings, load_settings
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TEST_DUMMY_SECRET = "test-only-dummy-secret-key-00000000"
 TEST_DUMMY_ADMIN_PASS = "test-only-dummy-admin-0000"
+TEST_DUMMY_VIEWER_PASS = "test-only-dummy-viewer-0000"
+TEST_DUMMY_CAM_SECRET = "cam-dummy-credential-alpha-99"
 
 
 def build_alembic_config(db_path: Path) -> Config:
@@ -46,3 +48,20 @@ def migrated_settings(app_settings: Settings, alembic_config: Config) -> Setting
     """Return Settings after migrating the on-disk SQLite database to Alembic head."""
     command.upgrade(alembic_config, "head")
     return app_settings
+
+
+@pytest.fixture
+def unbootstrapped_migrated_settings(tmp_path: Path) -> Settings:
+    """Return Alembic-migrated Settings with no BOOTSTRAP_ADMIN_PASSWORD configured."""
+    settings = load_settings(
+        env={
+            "APP_SECRET_KEY": TEST_DUMMY_SECRET,
+            "APP_VERSION": "0.1.0-alpha.test",
+        },
+        data_dir=tmp_path / "data_unbootstrapped",
+        frontend_dist_dir=tmp_path / "frontend_dist_unbootstrapped",
+    )
+    settings.ensure_storage_dirs()
+    cfg = build_alembic_config(settings.db_path)
+    command.upgrade(cfg, "head")
+    return settings
