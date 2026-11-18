@@ -1,0 +1,61 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: backend-dev
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/workspace/backend
+      - ./tests:/workspace/tests
+      - ./alembic.ini:/workspace/alembic.ini
+      - ./pyproject.toml:/workspace/pyproject.toml
+      - ./uv.lock:/workspace/uv.lock
+      - ./README.md:/workspace/README.md
+      - timelapse_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend-dev
+    environment:
+      VITE_API_PROXY_TARGET: "http://app:8000"
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: "web"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/workspace/frontend/src
+      - ./frontend/index.html:/workspace/frontend/index.html
+      - ./frontend/package.json:/workspace/frontend/package.json
+      - ./frontend/vite.config.ts:/workspace/frontend/vite.config.ts
+      - ./frontend/tsconfig.json:/workspace/frontend/tsconfig.json
+      - ./frontend/eslint.config.js:/workspace/frontend/eslint.config.js
+      - ./frontend/.prettierrc.json:/workspace/frontend/.prettierrc.json
+      - ./frontend/.prettierignore:/workspace/frontend/.prettierignore
+
+  e2e:
+    profiles:
+      - e2e
+    build:
+      context: ./tests/e2e
+      dockerfile: Dockerfile
+    environment:
+      CI: ${CI:-}
+      E2E_BASE_URL: "http://web:5173"
+      E2E_API_URL: "http://app:8000"
+    volumes:
+      - ./tests/e2e/specs:/e2e/specs:ro
+      - ./tests/e2e/playwright.config.ts:/e2e/playwright.config.ts:ro
+
+volumes:
+  timelapse_data:

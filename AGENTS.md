@@ -4,7 +4,7 @@
 
 **Security Cam Time-Lapse** — a self-hosted container that captures full-resolution still images from security cameras on a schedule and lets `Admin` and `Viewer` users interactively scrub or export dynamic timelapses in a web UI.
 
-**Status:** In development (Phase 0 — Engineering substrate).
+**Status:** In development (Phase 1 — Core capture, playback & export).
 
 ## Goal & Guiding Principle
 
@@ -46,7 +46,7 @@ justfile                Canonical commands — the entry point for every operati
 
 ## Current State / Active Work
 
-Repository seeded from `project-seed-kit`; domain design, stakeholder contracts, and engineering scaffolding are committed (`0.1.0-alpha`). Active focus: **Phase 0 — Engineering substrate** (FastAPI + React + SQLite + Docker skeleton, lockfiles, and green `just` gates). See [`docs/Implementation-Plan.md`](docs/Implementation-Plan.md).
+Phase 0 engineering substrate (FastAPI + React/Vite + SQLite WAL + Alembic + non-root Docker image, pinned lockfiles, and green unit/integration/e2e+axe `just` gates) is complete on `develop` (`0.1.0-alpha`). Active focus: **Phase 1 — Core capture, playback & export** (starting with Slice 1: multi-user auth, bootstrap onboarding, and `test_guardian_role_boundaries.py`). See [`docs/Implementation-Plan.md`](docs/Implementation-Plan.md).
 
 ## Conventions
 
