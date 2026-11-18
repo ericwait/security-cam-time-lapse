@@ -48,7 +48,11 @@ requirements, so the system uses a hybrid playback model
   canvas/sequence player with variable frame rate, timeline scrubbing, and
   single-frame full-resolution zoom — zero server encoding wait.
 - **On-demand rendered video export:** Any query can be rendered on the server
-  from the full-resolution originals into a downloadable video file. Rendered
+  from the full-resolution originals into a downloadable video file. Exports
+  default to native full camera resolution with universal browser/device
+  compatibility, and let users choose frame rate (`10`, `24`, `30`, or `60`
+  FPS), output resolution (`Native`, `4K`, or `1080p`), and an optional
+  burned-in timestamp watermark `(decision 2026-11-18, bootstrap)`. Rendered
   videos live solely in an **ephemeral TTL cache** (for example, expiring
   automatically after 24 hours) rather than a permanent saved-video library, so
   exports never silently consume unbounded disk space
@@ -77,10 +81,16 @@ no capture inside the tolerance window `(decision 2026-11-18, bootstrap)`.
   night/day flicker.
 - *Tie-breaking:* If two captures on the same day are equidistant from
   `target_time`, the earlier capture wins deterministically.
-- *DST edge cases:* On spring-forward days where a wall-clock hour does not
-  exist (e.g., `02:30`), only captures whose local wall-clock distance falls
-  within tolerance match; on fall-back days where a wall-clock hour repeats,
-  the first occurrence is preferred unless otherwise specified.
+- *DST reference mode:* Queries support evaluating `target_time` either in
+  **local wall-clock time** (default, e.g., `12:00` winter standard time then
+  `12:00` summer daylight time) or against a **fixed standard-time offset** for
+  the camera's timezone so outdoor sun position does not jump by an hour across
+  Daylight Saving Time transitions `(decision 2026-11-18, bootstrap)`.
+- *DST edge cases:* In wall-clock mode, on spring-forward days where a
+  wall-clock hour does not exist (e.g., `02:30`), only captures whose local
+  wall-clock distance falls within tolerance match; on fall-back days where a
+  wall-clock hour repeats, the first occurrence is preferred unless otherwise
+  specified.
 
 ### Mode 3 — Recurring daily window / solar event (Phase 2)
 

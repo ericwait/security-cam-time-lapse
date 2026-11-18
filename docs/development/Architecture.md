@@ -16,9 +16,15 @@ both the backend API/scheduler and the compiled web UI
   stored on the persistent `/data/db` volume. Because SQLite is embedded, unit
   and integration tests run against the exact same SQLite engine as production.
 - **Capture & video pipeline:** `ffmpeg` for RTSP main-stream keyframe extraction
-  and on-demand H.264 MP4 rendering; `httpx` for HTTP(S) camera snapshot
-  endpoints (Basic/Digest/Bearer auth); `Pillow` for generating 1080p WebP
-  previews alongside untouched full-resolution originals.
+  and on-demand H.264 (`yuv420p`) MP4 rendering (supporting native/4K/1080p
+  scaling, 10/24/30/60 FPS, and `drawtext` timestamp watermarks); `httpx` for
+  HTTP(S) camera snapshot endpoints (Basic/Digest/Bearer auth); `Pillow` for
+  generating 1080p WebP previews alongside untouched full-resolution originals.
+- **Synthetic development camera:** `just dev` (`python -m app.cli seed-dev`)
+  provides a built-in synthetic test camera adapter and seeds multi-month
+  sky/clock progression frames (spanning a DST transition) so Mode 1, Mode 2,
+  scrubbing, and MP4 export work out of the box without live cameras
+  `(decision 2026-11-18, bootstrap)`.
 - **Scheduler:** In-process async scheduler (`APScheduler` / `asyncio` tasks)
   driving per-camera capture intervals and periodic render-cache TTL cleanup.
 - **Frontend (`frontend/`):** TypeScript + React + Vite, built into static
