@@ -29,15 +29,30 @@ class Settings:
         """Return the SQLite database file path on the persistent data volume."""
         return self.data_dir / "db" / "timelapse.sqlite3"
 
+    @property
+    def photos_dir(self) -> Path:
+        """Return the full-resolution original photos root directory."""
+        return self.data_dir / "photos"
+
+    @property
+    def previews_dir(self) -> Path:
+        """Return the lightweight WebP previews root directory."""
+        return self.data_dir / "previews"
+
+    @property
+    def renders_dir(self) -> Path:
+        """Return the ephemeral MP4 timelapse render cache directory."""
+        return self.data_dir / "cache" / "renders"
+
     def ensure_storage_dirs(self) -> None:
         """Create the persistent volume subdirectories idempotently."""
-        for relative_dir in (
-            Path("db"),
-            Path("photos"),
-            Path("previews"),
-            Path("cache") / "renders",
+        for directory in (
+            self.db_path.parent,
+            self.photos_dir,
+            self.previews_dir,
+            self.renders_dir,
         ):
-            (self.data_dir / relative_dir).mkdir(parents=True, exist_ok=True)
+            directory.mkdir(parents=True, exist_ok=True)
 
 
 def compute_version(env: Mapping[str, str] | None = None) -> str:
