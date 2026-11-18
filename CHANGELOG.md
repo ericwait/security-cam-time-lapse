@@ -17,6 +17,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Containerized FastAPI + React/Vite + SQLite (WAL) application substrate with `/api/health` readiness reporting, Alembic schema migrations, non-root single-image runtime packaging, and accessible web UI shell.
+
 ### Changed
 
 ### Fixed

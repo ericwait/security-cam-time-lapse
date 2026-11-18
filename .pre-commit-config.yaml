@@ -4,8 +4,8 @@
 #   pre-commit install
 #
 # PIN RULE: keep `ruff-pre-commit` and frontend hook `rev` values aligned with
-# `backend/uv.lock` and `frontend/package-lock.json` in the same commit when
-# Phase 0 lockfiles land.
+# `uv.lock` and `frontend/package-lock.json` in the same commit when lockfiles
+# update.
 repos:
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.30.1
@@ -13,7 +13,7 @@ repos:
       - id: gitleaks
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.11.0
+    rev: v0.17.5
     hooks:
       - id: ruff
         args: [--fix]
