@@ -7,14 +7,12 @@ that's `/deps-update`. This only reports.
 
 ## 1. List outdated dependencies
 
-Run the outdated-dependency command for this project's ecosystem(s):
+Run the outdated-dependency commands for both ecosystems inside their
+containers:
 
 ```bash
-# FILL: the per-ecosystem "what's outdated" command, e.g.:
-#   uv tree --outdated          (Python, uv)
-#   npm outdated                (Node)
-#   go list -u -m all           (Go)
-#   bundle outdated             (Ruby)
+docker compose run --rm app uv tree --outdated
+docker compose run --rm web npm outdated
 ```
 
 Parse the output into package / current version / latest version.
@@ -34,9 +32,8 @@ as **"needs design review"** — a major bump is a decision, not an update.
 
 ## 4. Base image age, if applicable
 
-If a `Dockerfile` (or `Dockerfile.dev`) exists, read its first `FROM` line
-and report the pinned tag plus how long it's been since that line last
-changed:
+If a `Dockerfile` exists, read its `FROM` lines and report the pinned tags plus
+how long it's been since those lines last changed:
 
 ```bash
 git log -1 --format=%cI -- Dockerfile
@@ -48,7 +45,7 @@ Table: `package | current | latest | category | action`.
 
 Actions:
 
-- `safe-update` — within the existing pin, /deps-update can pick it up.
+- `safe-update` — within the existing pin, `/deps-update` can pick it up.
 - `review` — new major, or otherwise flagged; needs a human decision.
 - `defer` — minor lag, no urgency.
 

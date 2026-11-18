@@ -1,24 +1,19 @@
-> Status: [FILL: draft / adopted] | Audience: anyone designing a feature or a
-> stakeholder doc | See also: [Stakeholders/_TEMPLATE.md](Stakeholders/_TEMPLATE.md)
-
-<!--
-Write this before the second stakeholder conversation, not after the tenth.
-Every stakeholder doc and every non-trivial feature decision should be
-defensible against the principle stated here. If a decision can't be
-defended against it, either the decision or the principle is wrong — that
-tension is the point of writing this down.
--->
+> Status: adopted | Audience: anyone designing a feature or a stakeholder doc |
+> See also: [Stakeholders/Admin.md](Stakeholders/Admin.md),
+> [Stakeholders/Viewer.md](Stakeholders/Viewer.md),
+> [Timelapse-Modes-and-Storage.md](Timelapse-Modes-and-Storage.md)
 
 # Philosophy
 
 ## The guiding principle
 
-> [FILL: the project's guiding principle, stated in one sentence — the
-> sentence every design decision must be defensible against.]
+> Preserve full-resolution visual history automatically and make any slice of
+> time effortlessly playable, without asking viewers to wait on video encoding
+> or operators to babysit storage.
 
 Every section below, every stakeholder document, and every feature that gets
-built should trace back to this sentence. When a decision can't be defended
-against it, that's a signal to revisit the decision, not to skip the check.
+built traces back to this sentence. When a decision cannot be defended against
+it, revisit the decision rather than skipping the check.
 
 ## The stakeholder contract
 
@@ -35,22 +30,19 @@ same three-part contract:
 
 ## The design failure test
 
-> [FILL: the failure test, in the shape of — "If the system asks more of a
-> stakeholder than it gives back, the design has failed."]
+> If the system asks more of a stakeholder than it gives back — forcing a
+> viewer to wait on batch video encoding just to explore a date range, or
+> forcing an admin to hand-edit configuration files on disk to manage a camera
+> — the design has failed.
 
-Apply this test whenever a feature adds an obligation (a field to fill, a
-step to complete, a notification to read) to any role. A feature that serves
-no stakeholder's contract — that asks without giving, or gives to nobody in
+Apply this test whenever a feature adds an obligation (a field to fill, a step
+to complete, an alert to read) to any role. A feature that serves no
+stakeholder's contract — that asks without giving, or gives to nobody in
 particular — is questioned by default, not built by default.
 
 ## Stakeholder summary matrix
 
-<!-- One row per role once its Stakeholders/ doc exists. Keep this in sync;
-     it's a summary, and a summary that drifts from the source docs is worse
-     than no summary — link to the full doc rather than duplicate its
-     content here. -->
-
 | Role | Expected awareness | Expected action | Not expected to |
 | --- | --- | --- | --- |
-| [FILL: role name] | [FILL] | [FILL] | [FILL] |
-| [FILL: role name] | [FILL] | [FILL] | [FILL] |
+| [Admin](Stakeholders/Admin.md) | Camera connectivity, capture health, disk capacity, who should have access | Manage cameras, credentials, capture intervals, user accounts, and system settings in the Web UI | Hand-edit config files after deployment, manually prune render caches, or re-encode videos by hand |
+| [Viewer](Stakeholders/Viewer.md) | Which camera and date/time window they want to watch | Log in, browse any enabled camera, scrub dynamic timelapses, inspect full-res frames, and export video files | Configure cameras, manage storage or caches, or understand stream protocols |

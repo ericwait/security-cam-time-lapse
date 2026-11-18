@@ -76,7 +76,15 @@ DEVELOP_BRANCH="develop"
 # job's `name:` as shown in the PR checks list, matching this kit's
 # .github/workflows/ci.yml fast tier) — e.g.:
 #
-#   REQUIRED_STATUS_CHECKS=(lint typecheck schema-drift unit-tests integration-tests)
+#   REQUIRED_STATUS_CHECKS=(
+#     "Lint"
+#     "Type check"
+#     "Schema drift"
+#     "Unit tests"
+#     "Integration tests"
+#     "Compute version"
+#     "Validate ops artifacts"
+#   )
 #
 # Left empty, branch protection below still requires a PR and a review, but
 # does not yet require any specific check to pass — fill this in as soon as

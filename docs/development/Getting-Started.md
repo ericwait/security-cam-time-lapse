@@ -1,42 +1,49 @@
-> Status: [FILL: draft / adopted] | Audience: new contributors and agents
-> bootstrapping a checkout | See also: [Testing.md](Testing.md),
-> [../README.md](../README.md)
+> Status: adopted | Audience: new contributors and agents bootstrapping a
+> checkout | See also: [Architecture.md](Architecture.md),
+> [Testing.md](Testing.md), [../README.md](../README.md)
 
 # Getting started
 
 ## Prerequisites
 
-Install on the host: [FILL: e.g. "brew install docker docker-compose just"] —
-a container runtime, the task runner, and a couple of small CLIs. Nothing
-else touches the host; the toolchain itself lives in containers.
+Install on the host:
+
+```bash
+brew install just pre-commit
+```
+
+Plus a running Docker Engine with Compose v2 (`docker info` and
+`docker compose version`). Nothing else is required on the host — Python, `uv`,
+Node, and `ffmpeg` all run inside containers.
 
 ## Quick start
 
 ```bash
-git clone [FILL: repo URL]
-cd [FILL: repo directory]
+git clone https://github.com/ericwait/security-cam-time-lapse.git
+cd security-cam-time-lapse
 cp .env.example .env
-# Generate a local secret — never share this value, never commit it:
-openssl rand -hex 16
-# Paste the generated value into .env where the placeholder says so, then:
+# Generate unique local secrets — never share or commit these values:
+openssl rand -hex 32   # paste into APP_SECRET_KEY in .env
+openssl rand -hex 16   # paste into BOOTSTRAP_ADMIN_PASSWORD in .env
 just dev
 just health
 ```
 
-`just health` should report every service up. If it doesn't, see
-Troubleshooting below before doing anything else.
+`just health` should report the application and database healthy. If it does
+not, see Troubleshooting below before doing anything else.
 
 ## What `just dev` does
 
-Idempotent — safe to re-run at any time, including on an already-running
-stack:
+Idempotent — safe to re-run at any time, including on an already-running stack:
 
-1. Materializes local config from `.env` (fails loudly if a required variable
-   is missing).
-2. Starts services (app + datastore + [FILL: cache, proxy, mail-catcher, …]).
-3. Applies the schema (migrations run to the latest version).
-4. Seeds realistic development data, if the datastore is empty.
-5. Prints the URLs and any local credentials it just created.
+1. Validates `.env` against `.env.example` (fails loudly if a required variable
+   is missing or empty).
+2. Starts local services via `docker compose` (backend API/scheduler, frontend
+   dev server, and a synthetic mock-camera source for local development).
+3. Applies pending Alembic schema migrations to SQLite.
+4. Seeds development users and synthetic sample captures if the database is
+   empty.
+5. Prints the local Web UI URL and bootstrap login instructions.
 
 ## Install the commit hooks
 
@@ -46,7 +53,7 @@ One-time, per clone:
 pre-commit install
 ```
 
-Without this, `just lint` still catches everything CI catches — but you'll
+Without this, `just lint` still catches everything CI catches — but you will
 find out at push time instead of commit time.
 
 ## Resetting
@@ -55,21 +62,22 @@ find out at push time instead of commit time.
 just reset
 ```
 
-Destructive: drops all local data and rebuilds from scratch. Asks for typed
-confirmation before it does anything — the friction is deliberate, not a
-bug. Use it whenever local state feels wrong; the environment is disposable
-by design, so there's no state worth protecting here.
+Destructive: drops local containers and development data under `./data/` and
+rebuilds from scratch via `just dev`. Asks for typed confirmation before doing
+anything irreversible.
 
 ## Troubleshooting
 
-[FILL: the traps that have actually cost someone time on this project —
-port conflicts, stale volumes, a service that needs a second start. Add an
-entry the day something bites; a missing entry here means the next person
-rediscovers it the hard way.]
+- **`just: command not found` or `pre-commit: command not found`:** Install host
+  prerequisites (`brew install just pre-commit`), then run
+  `pre-commit install`.
+- **Docker daemon unreachable:** Start OrbStack / Docker Desktop and confirm
+  `docker info` succeeds before running `just dev`.
 
 ## Where to go next
 
+- Architecture and storage layout: [Architecture.md](Architecture.md).
 - Running and writing tests: [Testing.md](Testing.md).
-- The full documentation map: [../README.md](../README.md).
+- Full documentation map: [../README.md](../README.md).
 - Agent-facing conventions and gotchas: `../../CLAUDE.md` at the repository
   root.

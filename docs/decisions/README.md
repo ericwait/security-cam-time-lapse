@@ -9,8 +9,8 @@ noticed the hard way.
 # Decisions index
 
 This project has no separate decision-log format. Decisions are recorded
-**inline, where they're made** — in the design doc discussing the tradeoff,
-at the exact point of relevance — stamped like this:
+**inline, where they're made** — in the design or architecture doc discussing
+the tradeoff, at the exact point of relevance — stamped like this:
 
 ```text
 (decision YYYY-MM-DD, #issue)
@@ -20,14 +20,9 @@ When a later decision replaces an earlier one, the new entry says so
 explicitly, in place:
 
 ```text
-(decision YYYY-MM-DD, #issue) This supersedes the 2024-02-01 decision to
-[FILL: what changed and why].
+(decision YYYY-MM-DD, #issue) This supersedes the 2026-11-18 decision to
+<what changed and why>.
 ```
-
-The stamp and the reasoning live together, in context, so a reader hits the
-decision exactly where they'd otherwise ask "wait, why is it built this
-way?" This index exists only to make those stamps *discoverable* without
-grepping every design doc.
 
 ## Rule
 
@@ -39,5 +34,13 @@ someone skipped half the rule.
 
 | Date | Decision (one line) | Recorded in | Status |
 | --- | --- | --- | --- |
-| 2024-01-01 | *(example, delete me)* Adopt trunk-based branching with `develop` as the integration branch | [../../CLAUDE.md](../../CLAUDE.md) | active |
-| [FILL: YYYY-MM-DD] | [FILL: one-line decision] | [FILL: path to doc] | [FILL: active / superseded by YYYY-MM-DD] |
+| 2026-11-18 | License the repository under Zero-Clause BSD (`0BSD`) for unrestricted use and derivatives | [../../CLAUDE.md](../../CLAUDE.md) | active |
+| 2026-11-18 | Adopt `develop` integration branch + `main` release branch with merge-commit history for GitVersion | [../../CLAUDE.md](../../CLAUDE.md) | active |
+| 2026-11-18 | Manage cameras, credentials, and schedules directly in the Web UI rather than static config files | [../design/Stakeholders/Admin.md](../design/Stakeholders/Admin.md) | active |
+| 2026-11-18 | Use multi-user accounts with `Admin` (full management) and `Viewer` (browse/play/export all enabled cameras) roles | [../design/Stakeholders/Admin.md](../design/Stakeholders/Admin.md), [../design/Stakeholders/Viewer.md](../design/Stakeholders/Viewer.md) | active |
+| 2026-11-18 | Support both RTSP stream keyframe capture and HTTP(S) snapshot endpoints per camera | [../design/Timelapse-Modes-and-Storage.md](../design/Timelapse-Modes-and-Storage.md) | active |
+| 2026-11-18 | Store untouched full-res originals in `YYYY/MM/DD` folders alongside 1080p previews for smooth browser scrubbing | [../design/Timelapse-Modes-and-Storage.md](../design/Timelapse-Modes-and-Storage.md) | active |
+| 2026-11-18 | Use hybrid playback (instant browser sequence player + on-demand server MP4 export) with ephemeral TTL render caching only | [../design/Timelapse-Modes-and-Storage.md](../design/Timelapse-Modes-and-Storage.md) | active |
+| 2026-11-18 | Select at most one frame per day in Mode 2 (closest within `±tolerance`, skipping missing days) and defer Mode 3 (recurring daily/sunset windows) to Phase 2 | [../design/Timelapse-Modes-and-Storage.md](../design/Timelapse-Modes-and-Storage.md) | active |
+| 2026-11-18 | Package Python (FastAPI + SQLite + Alembic + FFmpeg) and TypeScript (React + Vite) in a single non-root Docker image | [../development/Architecture.md](../development/Architecture.md) | active |
+| 2026-11-18 | Restrict `.env` to secrets only and encrypt camera credentials at rest in SQLite using `APP_SECRET_KEY` | [../development/Architecture.md](../development/Architecture.md) | active |

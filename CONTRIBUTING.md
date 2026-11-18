@@ -14,18 +14,18 @@ full.
   back-merges into `develop` — mandatorily, so the fix isn't silently reverted
   by the next release.
 - All changes land via pull request. There is no sanctioned direct push to
-  `main` or `develop`.
+  `main` or `develop` (except the post-release hotfix back-merge).
 - Merges use **merge commits, never squash**. The versioning tool reads merge
   history to compute the next version; squashing erases the signal it needs.
 
 ## What CI runs where
 
-- **Fast tier** (lint, types, drift check, unit, integration) runs on every
-  pull request. It's PR-triggered, not push-triggered, so minutes aren't spent
-  twice.
+- **Fast tier** (lint, types, drift check, unit, integration, version, ops
+  validation) runs on every pull request. It's PR-triggered, not
+  push-triggered, so minutes aren't spent twice.
 - **Full gate** (end-to-end suite, accessibility, container vulnerability
-  scan, deep review) runs only on pull requests into `main` — where a red
-  result actually blocks a release.
+  scan) runs only on pull requests into `main` — where a red result actually
+  blocks a release.
 
 See `.github/workflows/ci.yml` for the exact steps.
 
@@ -33,12 +33,12 @@ See `.github/workflows/ci.yml` for the exact steps.
 
 Install once per clone:
 
-```text
-[FILL: pre-commit install]
+```bash
+pre-commit install
 ```
 
 The hooks run the formatter, the linter, the schema-drift check, and a secret
-scanner (gitleaks) before a commit is created — the same checks the fast CI
+scanner (`gitleaks`) before a commit is created — the same checks the fast CI
 tier runs, so a hook failure locally means CI would have failed too.
 
 ## Definition of Done
@@ -57,10 +57,11 @@ A change is done when, mirroring `CLAUDE.md`:
 A load-bearing decision gets recorded in the same commit it's made in, two
 places at once:
 
-1. An inline stamp at the point of relevance in `docs/design/` — date, issue
-   reference, and supersession note if it replaces an earlier decision.
+1. An inline stamp at the point of relevance in `docs/design/` or
+   `docs/development/` — date, issue reference, and supersession note if it
+   replaces an earlier decision.
 2. A one-line entry in `docs/decisions/README.md` so the decision is
-   discoverable without reading every design doc.
+   discoverable without reading every doc.
 
 A decision recorded in only one place is half-recorded — it either has no
 context (index only) or isn't discoverable (inline only).

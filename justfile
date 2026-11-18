@@ -2,128 +2,130 @@
 # justfile — the project's operational vocabulary (Practices Playbook Pillars
 # I and V)
 #
-# This file is the single source of truth for how anyone — human or agent —
-# runs this project. Every runbook, every Claude Code skill under
-# .claude/commands/, and every CI job delegates to these verbs instead of
-# reimplementing the steps behind them. "How do we do X?" is answered with a
-# verb name, not a paragraph.
-#
-# Fill each recipe body for your stack. Keep the verb NAMES stable — anything
-# that calls `just <verb>` (a skill, a workflow file, a teammate's habit)
-# breaks the moment a name changes. Add stack-specific recipes freely; do not
-# rename or remove one of the twelve below.
-#
-# NOTE: `just --list` shows the LAST comment line above each recipe as its
-# doc string — keep that line a one-line summary; contract details go above.
+# Single source of truth for how anyone — human, CI, or agent — operates this
+# project. Keep the twelve canonical verb names stable.
 # ==============================================================================
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
+
+compose := "docker compose"
+health_url := "http://localhost:8000/api/health"
 
 # List every recipe with its doc comment (run with no args).
 default:
     @just --list
 
-# CONTRACT: idempotent bootstrap. Safe to re-run on a machine that already has
-# a working environment. Sequence: write local config from the example if
-# missing → start services → apply schema → seed realistic data → print the
-# URLs and credentials for what it just built.
-#
+# Validate .env exists and contains every key declared in .env.example.
+[private]
+check-env:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f .env ]; then
+        echo "ERROR: .env is missing. Copy .env.example to .env and populate secrets first." >&2
+        exit 1
+    fi
+    missing=0
+    while IFS='=' read -r key _; do
+        [[ -z "$key" || "$key" =~ ^# ]] && continue
+        if ! grep -Eq "^${key}=.+" .env; then
+            echo "ERROR: required secret '${key}' is missing or empty in .env" >&2
+            missing=1
+        fi
+    done < .env.example
+    [ "$missing" -eq 0 ]
+
 # Bootstrap a ready-to-use dev environment (idempotent): env, services, schema, seed.
-dev:
-    @echo "not implemented — FILL: env→services→schema→seed→print URLs" >&2; exit 1
+dev: check-env
+    {{compose}} up -d --build
+    {{compose}} exec -T app uv run alembic upgrade head
+    {{compose}} exec -T app uv run python -m app.cli seed-dev
+    @echo "Dev stack ready -> http://localhost:5173 (API: http://localhost:8000)"
 
-# CONTRACT: start the already-configured services in the background without
-# touching schema or seed data. The lighter sibling of `dev` — use after the
-# first `dev` bootstrap when you just need the stack running again.
-#
 # Start the configured services in the background (no schema/seed steps).
-up:
-    @echo "not implemented — FILL: start services, no schema/seed steps" >&2; exit 1
+up: check-env
+    {{compose}} up -d
 
-# CONTRACT: stop the services started by `up`/`dev` without destroying their
-# data volumes. Safe, non-destructive — the inverse of `up`, not of `reset`.
-#
 # Stop services, preserving data volumes.
 down:
-    @echo "not implemented — FILL: stop services, preserve data volumes" >&2; exit 1
+    {{compose}} stop
 
-# CONTRACT: destructive. Tears down the environment — services, volumes,
-# local state — and rebuilds it from scratch via `dev`. Must ask for a typed
-# confirmation before doing anything irreversible (Pillar VIII: friction is a
-# design tool). The confirmation logic below is real, wired, and a worked
-# example for every other destructive recipe you add to this file.
-#
 # DESTRUCTIVE: tear down and rebuild from scratch (asks for typed confirmation).
 reset:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "This will permanently destroy local services, volumes, and data." >&2
-    read -p "Type 'yes' to continue: " confirmation
+    echo "This will permanently destroy local containers, volumes, and ./data contents." >&2
+    read -r -p "Type 'yes' to continue: " confirmation
     if [ "$confirmation" != "yes" ]; then
         echo "Aborted — no changes made." >&2
         exit 1
     fi
-    echo "not implemented — FILL: drop services + volumes, then invoke \`just dev\`" >&2
-    exit 1
+    {{compose}} down -v --remove-orphans
+    rm -rf ./data
+    just dev
 
-# CONTRACT: run the full automated test suite — every tier (unit,
-# integration, e2e) unless your stack's test runner supports narrowing to one
-# tier as an argument. Deterministic: no flaky retries, no skipped test
-# without a reason string (Pillar IV).
-#
-# Run the automated test suite (all tiers).
-test:
-    @echo "not implemented — FILL: run unit + integration + e2e tiers" >&2; exit 1
+# Run the automated test suite (all tiers, or pass 'unit' / 'integration').
+test tier="all":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{tier}}" in
+        unit)        {{compose}} run --rm app uv run pytest tests/unit ;;
+        integration) {{compose}} run --rm app uv run pytest tests/integration ;;
+        all)         {{compose}} run --rm app uv run pytest tests/unit tests/integration && {{compose}} run --rm web npm test -- --run ;;
+        *)           echo "Unknown tier '{{tier}}' (expected: all, unit, integration)" >&2; exit 1 ;;
+    esac
 
-# CONTRACT: run the end-to-end tier only, against a running stack, driving
-# the real UI. One scenario per critical stakeholder workflow.
-#
 # Run the end-to-end tier against a running stack.
 e2e:
-    @echo "not implemented — FILL: run e2e tier against a running stack" >&2; exit 1
+    {{compose}} run --rm e2e npx playwright test
 
-# CONTRACT: static analysis only. Reports problems; never mutates files. A
-# non-zero exit means real findings, not a formatting nit `fmt` would fix.
-#
 # Static analysis, check-only — never mutates files.
 lint:
-    @echo "not implemented — FILL: run the linter in check-only mode" >&2; exit 1
+    {{compose}} run --rm app uv run ruff check backend tests
+    {{compose}} run --rm app uv run ruff format --check backend tests
+    {{compose}} run --rm web npm run lint
 
-# CONTRACT: auto-format the codebase in place. Idempotent — running it twice
-# in a row produces no further diff. Pairs with the pre-commit hook so local
-# and CI never disagree about what "formatted" means.
-#
 # Auto-format the codebase in place (idempotent).
 fmt:
-    @echo "not implemented — FILL: run the formatter, writing changes" >&2; exit 1
+    {{compose}} run --rm app uv run ruff check --fix backend tests
+    {{compose}} run --rm app uv run ruff format backend tests
+    {{compose}} run --rm web npm run fmt
 
-# CONTRACT: static type checking only. Read-only, like `lint` — reports, does
-# not fix.
-#
 # Static type checking, check-only.
 typecheck:
-    @echo "not implemented — FILL: run the type checker in check-only mode" >&2; exit 1
+    {{compose}} run --rm app uv run mypy backend tests
+    {{compose}} run --rm web npm run typecheck
 
-# CONTRACT: apply any pending schema migrations to the datastore this
-# environment points at. Must be safe to run against a datastore that is
-# already up to date (no-op in that case).
-#
 # Apply pending schema migrations (no-op when already up to date).
 migrate:
-    @echo "not implemented — FILL: apply pending schema migrations" >&2; exit 1
+    {{compose}} run --rm app uv run alembic upgrade head
 
-# CONTRACT: hit the running app's health endpoint and pretty-print the
-# response (status, version, dependency checks). Read-only; exits non-zero if
-# the endpoint is unreachable or reports unhealthy.
-#
+# Verify SQLAlchemy models and committed Alembic migrations are in sync.
+schema-drift:
+    {{compose}} run --rm app uv run alembic check
+
 # Hit the health endpoint and pretty-print the response.
 health:
-    @echo "not implemented — FILL: curl the health endpoint, pretty-print JSON" >&2; exit 1
+    curl -fsS {{health_url}} | python3 -m json.tool
 
-# CONTRACT: print the current SemVer, computed from git history (tags,
-# branch, distance) — never hand-edited. This is the number every release
-# and every build artifact stamps itself with.
-#
 # Print the SemVer computed from git history.
 version:
-    @echo "not implemented — FILL: compute SemVer from git history" >&2; exit 1
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v dotnet-gitversion >/dev/null 2>&1; then
+        dotnet-gitversion /showvariable SemVer
+        exit 0
+    fi
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    last_tag="$(git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+    if [ -z "$last_tag" ]; then
+        base="0.1.0"
+        distance="$(git rev-list --count HEAD)"
+    else
+        base="${last_tag#v}"
+        distance="$(git rev-list --count "${last_tag}..HEAD")"
+    fi
+    if [ "$branch" = "main" ] && [ "$distance" -eq 0 ] && [ -n "$last_tag" ]; then
+        echo "$base"
+    else
+        echo "${base}-alpha.${distance}"
+    fi
