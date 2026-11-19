@@ -15,7 +15,11 @@ from app.config import Settings, load_settings
 from app.db import create_session_factory, create_sqlite_engine
 from app.models import Camera, CapturedFrame, SystemSetting, User
 from app.security import MIN_PASSWORD_LENGTH, hash_password
-from app.services import SYSTEM_PREFERENCES_KEY, get_system_preferences
+from app.services import (
+    SYSTEM_PREFERENCES_KEY,
+    get_effective_storage_paths,
+    get_system_preferences,
+)
 from app.synthetic import render_synthetic_frame
 
 SEED_SETTING_KEY: Final[str] = "substrate.seeded"
@@ -97,6 +101,10 @@ def _seed_synthetic_camera_and_frames(
     if existing_frames > 0:
         return
 
+    paths = get_effective_storage_paths(session, settings)
+    for directory in (paths.photos_dir, paths.previews_dir, paths.renders_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+
     seed_timestamps = _build_seed_timestamps_utc()
     for ts_utc in seed_timestamps:
         image_bytes = render_synthetic_frame(
@@ -107,7 +115,8 @@ def _seed_synthetic_camera_and_frames(
             height=SEED_FRAME_HEIGHT,
         )
         stored = store_dual_tier_capture(
-            data_dir=settings.data_dir,
+            photos_dir=paths.photos_dir,
+            previews_dir=paths.previews_dir,
             camera_slug=camera.slug,
             captured_at_utc=ts_utc,
             camera_timezone=camera.timezone,
@@ -165,11 +174,11 @@ def seed_dev(settings: Settings | None = None) -> None:
                 existing.updated_at = now
 
             if session.get(SystemSetting, SYSTEM_PREFERENCES_KEY) is None:
-                prefs = get_system_preferences(session)
+                prefs = get_system_preferences(session, resolved_settings)
                 session.add(
                     SystemSetting(
                         key=SYSTEM_PREFERENCES_KEY,
-                        value_json=json.dumps(prefs.model_dump()),
+                        value_json=json.dumps(prefs.model_dump(exclude={"migrated_files_count"})),
                         updated_at=now,
                     )
                 )

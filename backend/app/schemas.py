@@ -1,5 +1,6 @@
 """Pydantic request and response contracts for Auth, Admin, Timelapse, and Export APIs."""
 
+import posixpath
 import re
 from datetime import date, datetime, time
 from typing import Annotated, Final, Literal, Self
@@ -65,6 +66,17 @@ def _validate_interval_seconds(value: int) -> int:
     if isinstance(value, bool) or value < 10 or value > 86400:
         raise ValueError("interval_seconds must be between 10 and 86400")
     return value
+
+
+def _validate_storage_dir_path(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError("Storage directory path must not be empty")
+    if "\x00" in cleaned:
+        raise ValueError("Storage directory path must not contain null bytes")
+    if not cleaned.startswith("/"):
+        raise ValueError("Storage directory path must be an absolute POSIX path starting with '/'")
+    return posixpath.normpath("/" + cleaned.lstrip("/"))
 
 
 class StatusOkOut(BaseModel):
@@ -362,19 +374,26 @@ class CameraProbeOut(BaseModel):
 
 
 class SystemPreferencesOut(BaseModel):
-    """Global operational defaults managed by Admins."""
+    """Global operational defaults and active container storage paths managed by Admins."""
 
     default_timezone: str
     render_cache_ttl_hours: int
     default_tolerance_minutes: int
+    photos_dir: str
+    previews_dir: str
+    renders_dir: str
+    migrated_files_count: int = 0
 
 
 class SystemPreferencesUpdate(BaseModel):
-    """Update payload for global system settings."""
+    """Update payload for global system settings and container storage paths."""
 
     default_timezone: str | None = None
     render_cache_ttl_hours: int | None = None
     default_tolerance_minutes: int | None = None
+    photos_dir: str | None = None
+    previews_dir: str | None = None
+    renders_dir: str | None = None
 
     @field_validator("default_timezone", mode="after")
     @classmethod
@@ -401,6 +420,13 @@ class SystemPreferencesUpdate(BaseModel):
             raise ValueError("default_tolerance_minutes must be between 0 and 720")
         return value
 
+    @field_validator("photos_dir", "previews_dir", "renders_dir", mode="after")
+    @classmethod
+    def _check_storage_dir(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _validate_storage_dir_path(value)
+
 
 class StorageStatsOut(BaseModel):
     """Volume capacity and directory footprint summary for Admin operators."""
@@ -413,6 +439,9 @@ class StorageStatsOut(BaseModel):
     renders_bytes: int
     total_frames: int
     active_renders: int
+    photos_dir: str
+    previews_dir: str
+    renders_dir: str
 
 
 class CameraViewerOut(BaseModel):

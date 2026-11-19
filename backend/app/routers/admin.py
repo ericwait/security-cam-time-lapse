@@ -52,6 +52,7 @@ from app.services import (
     execute_camera_capture,
     frame_to_out,
     generate_unique_camera_slug,
+    get_effective_storage_paths,
     get_system_preferences,
     reap_expired_render_jobs,
     update_system_preferences,
@@ -377,19 +378,20 @@ def delete_camera(
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
 
+    paths = get_effective_storage_paths(session, settings)
     render_paths = session.scalars(
         select(RenderJob.output_rel_path).where(RenderJob.camera_id == camera.id)
     ).all()
     for rel_path in render_paths:
         with suppress(ValueError):
-            unlink_render_artifact(settings.renders_dir, rel_path)
+            unlink_render_artifact(paths.renders_dir, rel_path)
 
     slug = camera.slug
     session.delete(camera)
     session.commit()
 
-    shutil.rmtree(settings.photos_dir / slug, ignore_errors=True)
-    shutil.rmtree(settings.previews_dir / slug, ignore_errors=True)
+    shutil.rmtree(paths.photos_dir / slug, ignore_errors=True)
+    shutil.rmtree(paths.previews_dir / slug, ignore_errors=True)
 
 
 @router.post("/cameras/{camera_id}/test-capture", response_model=CameraProbeOut)
@@ -455,18 +457,20 @@ def capture_camera_now(
 @router.get("/settings", response_model=SystemPreferencesOut)
 def get_admin_settings(
     session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> SystemPreferencesOut:
-    """Return global operational defaults."""
-    return get_system_preferences(session)
+    """Return global operational defaults and active storage paths."""
+    return get_system_preferences(session, settings)
 
 
 @router.put("/settings", response_model=SystemPreferencesOut)
 def put_admin_settings(
     payload: SystemPreferencesUpdate,
     session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> SystemPreferencesOut:
-    """Update global operational defaults."""
-    return update_system_preferences(session, payload)
+    """Update global operational defaults and optionally migrate storage directories."""
+    return update_system_preferences(session, payload, settings)
 
 
 @router.get("/storage", response_model=StorageStatsOut)
@@ -476,7 +480,9 @@ def get_storage_stats(
 ) -> StorageStatsOut:
     """Return filesystem capacity and byte breakdown across photos, previews, and renders."""
     reap_expired_render_jobs(session, settings)
-    disk = shutil.disk_usage(settings.data_dir)
+    paths = get_effective_storage_paths(session, settings)
+    paths.photos_dir.mkdir(parents=True, exist_ok=True)
+    disk = shutil.disk_usage(paths.photos_dir)
     total_frames = int(session.scalar(select(func.count()).select_from(CapturedFrame)) or 0)
     active_renders = int(
         session.scalar(
@@ -490,9 +496,12 @@ def get_storage_stats(
         disk_total_bytes=disk.total,
         disk_used_bytes=disk.used,
         disk_free_bytes=disk.free,
-        photos_bytes=compute_directory_bytes(settings.photos_dir),
-        previews_bytes=compute_directory_bytes(settings.previews_dir),
-        renders_bytes=compute_directory_bytes(settings.renders_dir),
+        photos_bytes=compute_directory_bytes(paths.photos_dir),
+        previews_bytes=compute_directory_bytes(paths.previews_dir),
+        renders_bytes=compute_directory_bytes(paths.renders_dir),
         total_frames=total_frames,
         active_renders=active_renders,
+        photos_dir=str(paths.photos_dir),
+        previews_dir=str(paths.previews_dir),
+        renders_dir=str(paths.renders_dir),
     )

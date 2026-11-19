@@ -1,12 +1,15 @@
 """Integration tests for TimelapseScheduler, Admin settings/storage, and lifecycle edge cases."""
 
 import base64
+import os
 import shutil
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
+from pathlib import Path
 from typing import Any, Final
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import func, select
@@ -325,21 +328,30 @@ def test_admin_settings_persistence_validation_and_storage_telemetry(
 
         defaults_resp = client.get("/api/admin/settings")
         assert defaults_resp.status_code == 200
-        assert defaults_resp.json() == {
+        expected_defaults = {
             "default_timezone": "America/Chicago",
             "render_cache_ttl_hours": 24,
             "default_tolerance_minutes": 15,
+            "photos_dir": str(migrated_settings.photos_dir),
+            "previews_dir": str(migrated_settings.previews_dir),
+            "renders_dir": str(migrated_settings.renders_dir),
+            "migrated_files_count": 0,
         }
+        assert defaults_resp.json() == expected_defaults
 
         updated_payload = {
             "default_timezone": "America/New_York",
             "render_cache_ttl_hours": 12,
             "default_tolerance_minutes": 20,
         }
+        expected_updated = {
+            **expected_defaults,
+            **updated_payload,
+        }
         put_resp = client.put("/api/admin/settings", json=updated_payload)
         assert put_resp.status_code == 200
-        assert put_resp.json() == updated_payload
-        assert client.get("/api/admin/settings").json() == updated_payload
+        assert put_resp.json() == expected_updated
+        assert client.get("/api/admin/settings").json() == expected_updated
 
         bad_tz_resp = client.put(
             "/api/admin/settings",
@@ -352,7 +364,7 @@ def test_admin_settings_persistence_validation_and_storage_telemetry(
             json={"default_timezone": "UTC-5"},
         )
         assert offset_tz_resp.status_code == 422
-        assert client.get("/api/admin/settings").json() == updated_payload
+        assert client.get("/api/admin/settings").json() == expected_updated
 
         baseline_storage = client.get("/api/admin/storage")
         assert baseline_storage.status_code == 200
@@ -363,6 +375,9 @@ def test_admin_settings_persistence_validation_and_storage_telemetry(
         assert base_stats["renders_bytes"] == 0
         assert base_stats["total_frames"] == 0
         assert base_stats["active_renders"] == 0
+        assert base_stats["photos_dir"] == str(migrated_settings.photos_dir)
+        assert base_stats["previews_dir"] == str(migrated_settings.previews_dir)
+        assert base_stats["renders_dir"] == str(migrated_settings.renders_dir)
 
         cam_resp = client.post(
             "/api/admin/cameras",
@@ -684,3 +699,307 @@ def test_multi_admin_handoff_and_password_rotation_revoking_parallel_sessions(
 
         remaining_users = primary_admin.get("/api/admin/users").json()
         assert [u["id"] for u in remaining_users] == [primary_admin_id]
+
+
+def test_configurable_storage_paths_live_file_migration_and_playback_continuity(
+    migrated_settings: Settings,
+    tmp_path: Path,
+) -> None:
+    assert shutil.which("ffmpeg") is not None, "ffmpeg is required in integration runtime"
+
+    app = create_app(migrated_settings, enable_scheduler=False)
+    with TestClient(app) as client:
+        login_resp = client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": DUMMY_ADMIN_PASS},
+        )
+        assert login_resp.status_code == 200
+
+        cam_resp = client.post(
+            "/api/admin/cameras",
+            json={
+                "name": "Migration Courtyard",
+                "slug": "migration-courtyard",
+                "source_type": "synthetic",
+                "source_url": "synthetic://migration-courtyard",
+                "timezone": "America/Chicago",
+                "interval_seconds": 600,
+                "is_enabled": True,
+            },
+        )
+        assert cam_resp.status_code == 201
+        camera_id: int = cam_resp.json()["id"]
+
+        session_factory: sessionmaker[Session] = app.state.session_factory
+        t1 = datetime(2026, 6, 1, 15, 0, 0, tzinfo=UTC)
+        t2 = datetime(2026, 6, 1, 15, 10, 0, tzinfo=UTC)
+        with session_factory() as session:
+            cam_row = session.get(Camera, camera_id)
+            assert cam_row is not None
+            f1 = execute_camera_capture(session, migrated_settings, cam_row, captured_at_utc=t1)
+            f2 = execute_camera_capture(session, migrated_settings, cam_row, captured_at_utc=t2)
+            frame_1_id = f1.id
+            frame_1_orig_rel = f1.original_rel_path
+            frame_1_prev_rel = f1.preview_rel_path
+            frame_2_orig_rel = f2.original_rel_path
+            frame_2_prev_rel = f2.preview_rel_path
+
+        export_resp = client.post(
+            "/api/exports",
+            json={
+                "query": {
+                    "camera_id": camera_id,
+                    "mode": "continuous",
+                    "start_timestamp": "2026-06-01T14:55:00Z",
+                    "end_timestamp": "2026-06-01T15:20:00Z",
+                },
+                "fps": 10,
+                "resolution_preset": "1080p",
+                "watermark_timestamp": False,
+            },
+        )
+        assert export_resp.status_code == 202
+        job_id: str = export_resp.json()["id"]
+        assert client.get(f"/api/exports/{job_id}").json()["status"] == "completed"
+
+        assert (migrated_settings.photos_dir / frame_1_orig_rel).is_file()
+        assert (migrated_settings.previews_dir / frame_1_prev_rel).is_file()
+        assert (migrated_settings.renders_dir / f"{job_id}.mp4").is_file()
+
+        custom_root = tmp_path / "custom_storage"
+        custom_photos = custom_root / "photos_archive"
+        custom_previews = custom_root / "previews_fast"
+        custom_renders = custom_root / "renders_ephemeral"
+
+        relocate_resp = client.put(
+            "/api/admin/settings",
+            json={
+                "photos_dir": str(custom_photos),
+                "previews_dir": str(custom_previews),
+                "renders_dir": str(custom_renders),
+            },
+        )
+        assert relocate_resp.status_code == 200
+        relocated_data = relocate_resp.json()
+        # 2 originals + 2 previews + 1 rendered MP4 = 5 files migrated
+        assert relocated_data["migrated_files_count"] == 5
+        assert relocated_data["photos_dir"] == str(custom_photos)
+        assert relocated_data["previews_dir"] == str(custom_previews)
+        assert relocated_data["renders_dir"] == str(custom_renders)
+
+        # Old directories remain intact as mount roots, with all child files/dirs migrated out
+        assert migrated_settings.photos_dir.is_dir()
+        assert migrated_settings.previews_dir.is_dir()
+        assert migrated_settings.renders_dir.is_dir()
+        assert list(migrated_settings.photos_dir.rglob("*")) == []
+        assert list(migrated_settings.previews_dir.rglob("*")) == []
+        assert list(migrated_settings.renders_dir.rglob("*")) == []
+
+        assert (custom_photos / frame_1_orig_rel).is_file()
+        assert (custom_photos / frame_2_orig_rel).is_file()
+        assert (custom_previews / frame_1_prev_rel).is_file()
+        assert (custom_previews / frame_2_prev_rel).is_file()
+        assert (custom_renders / f"{job_id}.mp4").is_file()
+
+        # Playback & export download serve seamlessly from relocated paths
+        prev_resp = client.get(f"/api/frames/{frame_1_id}/preview")
+        assert prev_resp.status_code == 200
+        assert prev_resp.headers["content-type"] == "image/webp"
+
+        orig_resp = client.get(f"/api/frames/{frame_1_id}/original")
+        assert orig_resp.status_code == 200
+        assert orig_resp.headers["content-type"] == "image/jpeg"
+
+        mp4_resp = client.get(f"/api/exports/{job_id}/download")
+        assert mp4_resp.status_code == 200
+        assert mp4_resp.headers["content-type"] == "video/mp4"
+
+        # Subsequent capture-now writes into relocated directories (not old default directories)
+        new_cap_resp = client.post(f"/api/admin/cameras/{camera_id}/capture-now")
+        assert new_cap_resp.status_code == 201
+        new_frame_id: int = new_cap_resp.json()["id"]
+        with session_factory() as session:
+            new_frame_row = session.get(CapturedFrame, new_frame_id)
+            assert new_frame_row is not None
+            assert (custom_photos / new_frame_row.original_rel_path).is_file()
+            assert (custom_previews / new_frame_row.preview_rel_path).is_file()
+        assert list(migrated_settings.photos_dir.rglob("*")) == []
+        assert list(migrated_settings.previews_dir.rglob("*")) == []
+
+        # Storage stats reflect relocated paths and non-zero footprints
+        storage_resp = client.get("/api/admin/storage")
+        assert storage_resp.status_code == 200
+        storage_data = storage_resp.json()
+        assert storage_data["photos_dir"] == str(custom_photos)
+        assert storage_data["previews_dir"] == str(custom_previews)
+        assert storage_data["renders_dir"] == str(custom_renders)
+        assert storage_data["photos_bytes"] > 0
+        assert storage_data["previews_bytes"] > 0
+        assert storage_data["renders_bytes"] > 0
+
+        # Deleting camera cleans up relocated storage directories and cached renders
+        del_resp = client.delete(f"/api/admin/cameras/{camera_id}")
+        assert del_resp.status_code == 204
+        assert not (custom_photos / "migration-courtyard").exists()
+        assert not (custom_previews / "migration-courtyard").exists()
+        assert not (custom_renders / f"{job_id}.mp4").exists()
+
+
+def test_configurable_storage_paths_validation_overlap_running_render_and_rollback(
+    migrated_settings: Settings,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = create_app(migrated_settings, enable_scheduler=False)
+    with TestClient(app) as client:
+        login_resp = client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": DUMMY_ADMIN_PASS},
+        )
+        assert login_resp.status_code == 200
+
+        # 1. Relative path -> 422
+        rel_resp = client.put("/api/admin/settings", json={"photos_dir": "relative/photos"})
+        assert rel_resp.status_code == 422
+
+        # 2. Null byte -> 422
+        null_resp = client.put("/api/admin/settings", json={"photos_dir": "/tmp/bad\x00path"})
+        assert null_resp.status_code == 422
+
+        # 3. Forbidden system paths -> 422
+        for forbidden_path in ("/", "/etc/photos", "/workspace/photos", "/home/appuser/.venv/p"):
+            sys_resp = client.put("/api/admin/settings", json={"photos_dir": forbidden_path})
+            assert sys_resp.status_code == 422, f"Expected 422 for {forbidden_path}"
+
+        # 4. SQLite database directory or parent data_dir overlap -> 422
+        db_parent_resp = client.put(
+            "/api/admin/settings",
+            json={"photos_dir": str(migrated_settings.db_path.parent)},
+        )
+        assert db_parent_resp.status_code == 422
+
+        data_root_resp = client.put(
+            "/api/admin/settings",
+            json={"photos_dir": str(migrated_settings.data_dir)},
+        )
+        assert data_root_resp.status_code == 422
+
+        # 5. Overlapping or nested storage tiers -> 422
+        shared_dir = str(tmp_path / "shared_tier")
+        equal_overlap_resp = client.put(
+            "/api/admin/settings",
+            json={"photos_dir": shared_dir, "previews_dir": shared_dir},
+        )
+        assert equal_overlap_resp.status_code == 422
+
+        nested_overlap_resp = client.put(
+            "/api/admin/settings",
+            json={
+                "photos_dir": str(tmp_path / "nested_tier"),
+                "previews_dir": str(tmp_path / "nested_tier" / "previews"),
+            },
+        )
+        assert nested_overlap_resp.status_code == 422
+
+        # 6. Unwritable / invalid directory -> 400
+        file_blocker = tmp_path / "regular_file_blocker"
+        file_blocker.write_bytes(b"not-a-directory")
+        blocked_resp = client.put(
+            "/api/admin/settings",
+            json={"photos_dir": str(file_blocker / "photos")},
+        )
+        assert blocked_resp.status_code == 400
+
+        if os.geteuid() != 0:
+            readonly_dir = tmp_path / "readonly_photos"
+            readonly_dir.mkdir(parents=True, exist_ok=True)
+            readonly_dir.chmod(0o555)
+            try:
+                ro_resp = client.put(
+                    "/api/admin/settings",
+                    json={"photos_dir": str(readonly_dir)},
+                )
+                assert ro_resp.status_code == 400
+            finally:
+                readonly_dir.chmod(0o755)
+
+        # 7. Relocating renders_dir while a RenderJob has status == 'running' -> 409
+        cam_resp = client.post(
+            "/api/admin/cameras",
+            json={
+                "name": "Rollback Gate",
+                "slug": "rollback-gate",
+                "source_type": "synthetic",
+                "source_url": "synthetic://rollback-gate",
+                "timezone": "UTC",
+                "interval_seconds": 600,
+                "is_enabled": True,
+            },
+        )
+        assert cam_resp.status_code == 201
+        camera_id: int = cam_resp.json()["id"]
+        assert client.post(f"/api/admin/cameras/{camera_id}/capture-now").status_code == 201
+
+        session_factory: sessionmaker[Session] = app.state.session_factory
+        now_utc = datetime.now(UTC)
+        admin_user_id: int = login_resp.json()["id"]
+        with session_factory() as session:
+            running_job = RenderJob(
+                id="active-running-job",
+                camera_id=camera_id,
+                created_by_user_id=admin_user_id,
+                mode="continuous",
+                query_params_json="{}",
+                fps=24,
+                resolution_preset="1080p",
+                watermark_timestamp=False,
+                status="running",
+                frame_count=2,
+                processed_frames=1,
+                output_rel_path=None,
+                output_size_bytes=None,
+                error_message=None,
+                created_at=now_utc,
+                completed_at=None,
+                expires_at=now_utc + timedelta(hours=24),
+            )
+            session.add(running_job)
+            session.commit()
+
+        busy_resp = client.put(
+            "/api/admin/settings",
+            json={"renders_dir": str(tmp_path / "relocated_renders")},
+        )
+        assert busy_resp.status_code == 409
+
+        with session_factory() as session:
+            job_row = session.get(RenderJob, "active-running-job")
+            assert job_row is not None
+            session.delete(job_row)
+            session.commit()
+
+        # 8. Mid-migration OSError rolls back already-moved files and leaves settings unchanged
+        real_move = shutil.move
+        move_calls = 0
+
+        def _failing_second_move(src: str, dst: str, *args: Any, **kwargs: Any) -> Any:
+            nonlocal move_calls
+            move_calls += 1
+            if move_calls == 2:
+                raise OSError("Simulated cross-device I/O failure")
+            return real_move(src, dst, *args, **kwargs)
+
+        monkeypatch.setattr(shutil, "move", _failing_second_move)
+        rollback_target = tmp_path / "rollback_target"
+        fail_resp = client.put(
+            "/api/admin/settings",
+            json={
+                "photos_dir": str(rollback_target / "photos"),
+                "previews_dir": str(rollback_target / "previews"),
+            },
+        )
+        assert fail_resp.status_code == 500
+        assert len(list(migrated_settings.photos_dir.rglob("*.jpg"))) == 1
+        assert len(list(migrated_settings.previews_dir.rglob("*.webp"))) == 1
+        current_prefs = client.get("/api/admin/settings").json()
+        assert current_prefs["photos_dir"] == str(migrated_settings.photos_dir)

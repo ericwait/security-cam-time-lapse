@@ -28,6 +28,7 @@ from app.services import (
     build_camera_stats_map,
     camera_to_viewer_out,
     frame_to_out,
+    get_effective_storage_paths,
     get_system_preferences,
     reap_expired_render_jobs,
     render_job_to_out,
@@ -102,7 +103,8 @@ def get_frame_preview(
         raise HTTPException(status_code=404, detail="Frame not found")
 
     verify_camera_access(session.get(Camera, frame.camera_id), current_user)
-    file_path = resolve_contained_file(settings.previews_dir, frame.preview_rel_path)
+    paths = get_effective_storage_paths(session, settings)
+    file_path = resolve_contained_file(paths.previews_dir, frame.preview_rel_path)
     return FileResponse(file_path, media_type="image/webp")
 
 
@@ -120,7 +122,8 @@ def get_frame_original(
         raise HTTPException(status_code=404, detail="Frame not found")
 
     camera = verify_camera_access(session.get(Camera, frame.camera_id), current_user)
-    file_path = resolve_contained_file(settings.photos_dir, frame.original_rel_path)
+    paths = get_effective_storage_paths(session, settings)
+    file_path = resolve_contained_file(paths.photos_dir, frame.original_rel_path)
     filename = f"{camera.slug}-{Path(frame.original_rel_path).name}" if download else None
     return FileResponse(file_path, media_type="image/jpeg", filename=filename)
 
@@ -143,9 +146,11 @@ def create_export_job(
             detail="No captured frames match the requested timelapse query",
         )
 
+    prefs = get_system_preferences(session, settings)
+    paths = get_effective_storage_paths(session, settings)
     export_inputs: list[ExportFrameInput] = []
     for frame in selected:
-        orig_path = resolve_contained_file(settings.photos_dir, frame.original_rel_path)
+        orig_path = resolve_contained_file(paths.photos_dir, frame.original_rel_path)
         timestamp_label = format_frame_local_timestamp(
             ensure_utc(frame.captured_at_utc),
             camera.timezone,
@@ -157,7 +162,7 @@ def create_export_job(
             )
         )
 
-    ttl_hours = get_system_preferences(session).render_cache_ttl_hours
+    ttl_hours = prefs.render_cache_ttl_hours
     now = datetime.now(UTC)
     job_id = str(uuid4())
     options = ExportOptions(
@@ -253,7 +258,8 @@ def download_export_job(
             detail="Export has expired from the ephemeral render cache",
         )
 
-    resolved_root = settings.renders_dir.resolve()
+    paths = get_effective_storage_paths(session, settings)
+    resolved_root = paths.renders_dir.resolve()
     candidate = (resolved_root / job.output_rel_path).resolve()
     if candidate == resolved_root or not candidate.is_relative_to(resolved_root):
         raise HTTPException(status_code=403, detail="Invalid artifact path")

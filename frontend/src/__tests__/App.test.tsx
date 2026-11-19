@@ -6,6 +6,8 @@ import type {
   CameraViewer,
   HealthPayload,
   RenderJob,
+  StorageStats,
+  SystemSettings,
   TimelapseQueryResponse,
   User,
 } from "../types";
@@ -267,6 +269,8 @@ describe("Security Cam Time-Lapse Web UI", () => {
 
     let exportPollCount = 0;
     let capturedExportBody: Record<string, unknown> | null = null;
+    let capturedSettingsPayload: Record<string, unknown> | null = null;
+    let currentPhotosDir = "/data/photos";
 
     vi.spyOn(globalThis, "fetch").mockImplementation(
       async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -330,6 +334,49 @@ describe("Security Cam Time-Lapse Web UI", () => {
         if (path === "/api/admin/cameras" && method === "GET") {
           return jsonResponse(adminCameras);
         }
+        if (path === "/api/admin/storage" && method === "GET") {
+          const storagePayload: StorageStats = {
+            disk_total_bytes: 100_000_000_000,
+            disk_used_bytes: 24_000_000_000,
+            disk_free_bytes: 76_000_000_000,
+            photos_bytes: 1_850_000_000,
+            previews_bytes: 180_000_000,
+            renders_bytes: 42_000_000,
+            total_frames: 120,
+            active_renders: 0,
+            photos_dir: currentPhotosDir,
+            previews_dir: "/data/previews",
+            renders_dir: "/data/cache/renders",
+          };
+          return jsonResponse(storagePayload);
+        }
+        if (path === "/api/admin/settings" && method === "GET") {
+          const settingsPayload: SystemSettings = {
+            default_timezone: "America/Chicago",
+            render_cache_ttl_hours: 24,
+            default_tolerance_minutes: 15,
+            photos_dir: currentPhotosDir,
+            previews_dir: "/data/previews",
+            renders_dir: "/data/cache/renders",
+          };
+          return jsonResponse(settingsPayload);
+        }
+        if (path === "/api/admin/settings" && method === "PUT") {
+          capturedSettingsPayload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+          currentPhotosDir = String(capturedSettingsPayload.photos_dir ?? "/data/photos");
+          const updatedSettings: SystemSettings = {
+            default_timezone: String(capturedSettingsPayload.default_timezone ?? "America/Chicago"),
+            render_cache_ttl_hours: Number(capturedSettingsPayload.render_cache_ttl_hours ?? 24),
+            default_tolerance_minutes: Number(
+              capturedSettingsPayload.default_tolerance_minutes ?? 15,
+            ),
+            photos_dir: currentPhotosDir,
+            previews_dir: String(capturedSettingsPayload.previews_dir ?? "/data/previews"),
+            renders_dir: String(capturedSettingsPayload.renders_dir ?? "/data/cache/renders"),
+            migrated_files_count: 14,
+          };
+          return jsonResponse(updatedSettings);
+        }
         throw new Error(`Unhandled request: ${method} ${path}`);
       },
     );
@@ -374,6 +421,37 @@ describe("Security Cam Time-Lapse Web UI", () => {
     expect(await screen.findByTestId("camera-form")).toBeInTheDocument();
     expect(screen.getByTestId("admin-tab-users")).toBeInTheDocument();
     expect(screen.getByTestId("admin-tab-storage")).toBeInTheDocument();
+
+    // Navigate to Storage & Settings, relocate photos_dir, and verify migration banner.
+    fireEvent.click(screen.getByTestId("admin-tab-storage"));
+    const settingsForm = await screen.findByTestId("settings-form");
+    await waitFor(() => {
+      expect(screen.getByText("/data/photos")).toBeInTheDocument();
+    });
+    expect(screen.getByText("/data/previews")).toBeInTheDocument();
+    expect(screen.getByText("/data/cache/renders")).toBeInTheDocument();
+
+    const photosDirInput = screen.getByTestId("settings-photos-dir") as HTMLInputElement;
+    expect(photosDirInput.value).toBe("/data/photos");
+
+    fireEvent.change(photosDirInput, { target: { value: "/mnt/nas/photos" } });
+    fireEvent.submit(settingsForm);
+
+    expect(await within(settingsForm).findByRole("status")).toHaveTextContent(
+      "Settings saved — automatically moved 14 existing file(s) to the new storage paths.",
+    );
+    expect(capturedSettingsPayload).toEqual({
+      default_timezone: "America/Chicago",
+      render_cache_ttl_hours: 24,
+      default_tolerance_minutes: 15,
+      photos_dir: "/mnt/nas/photos",
+      previews_dir: "/data/previews",
+      renders_dir: "/data/cache/renders",
+    });
+    expect(screen.getByText("/mnt/nas/photos")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("reset-storage-paths-button"));
+    expect(photosDirInput.value).toBe("/data/photos");
   });
 
   it("renders graceful error states when /api/health or /api/auth/login fails", async () => {
