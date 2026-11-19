@@ -38,6 +38,7 @@ from app.schemas import (
 )
 from app.security import (
     SecretDecryptionError,
+    decrypt_secret,
     encrypt_secret,
     hash_password,
     scrub_secrets,
@@ -263,11 +264,20 @@ def create_camera(
 @router.post("/cameras/test-connection", response_model=CameraProbeOut)
 def test_camera_connection(
     payload: CameraConnectionTestRequest,
+    session: Annotated[Session, Depends(get_db_session)],
+    settings: Annotated[Settings, Depends(get_settings)],
     http_transport: Annotated[httpx.BaseTransport | None, Depends(get_http_transport)],
 ) -> CameraProbeOut:
     """Probe a candidate camera connection in memory and return an inline WebP preview."""
     cleaned_name = payload.name.strip() or "Connection Test"
     secret = payload.secret if payload.auth_type != "none" else None
+    if secret is None and payload.auth_type != "none" and payload.camera_id is not None:
+        existing_camera = session.get(Camera, payload.camera_id)
+        if existing_camera is not None and existing_camera.encrypted_secret:
+            try:
+                secret = decrypt_secret(settings.secret_key, existing_camera.encrypted_secret)
+            except SecretDecryptionError as exc:
+                raise HTTPException(status_code=502, detail=str(exc)) from None
     username = (
         payload.auth_username.strip()
         if payload.auth_type != "none" and payload.auth_username and payload.auth_username.strip()

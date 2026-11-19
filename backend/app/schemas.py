@@ -327,6 +327,7 @@ class CameraUpdate(BaseModel):
 class CameraConnectionTestRequest(BaseModel):
     """In-memory live probe payload before persisting a camera."""
 
+    camera_id: int | None = None
     name: str = "Connection Test"
     source_type: SourceType
     source_url: str
