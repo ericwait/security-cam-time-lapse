@@ -28,6 +28,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Added native Reolink HTTP/HTTPS CGI (`cmd=Login` / `cmd=Snap` / `cmd=Logout`) snapshot negotiation, self-signed TLS support for private LAN camera IPs, automatic `/Preview_01_main` RTSP fallback for bare camera hosts, and inline camera connection error feedback in the Admin Console.
+
 ### Deprecated
 
 ### Removed
