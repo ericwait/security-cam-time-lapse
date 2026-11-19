@@ -492,13 +492,29 @@ def _atomic_write_bytes(target_path: Path, payload: bytes) -> None:
 
 def store_dual_tier_capture(
     *,
-    data_dir: Path,
+    data_dir: Path | None = None,
+    photos_dir: Path | None = None,
+    previews_dir: Path | None = None,
     camera_slug: str,
     captured_at_utc: datetime,
     camera_timezone: str,
     image_bytes: bytes,
 ) -> StoredCapture:
     """Persist untouched original bytes alongside a 1080p WebP preview atomically."""
+    if photos_dir is None:
+        if data_dir is None:
+            raise ValueError("Either photos_dir or data_dir must be provided.")
+        resolved_photos_dir = data_dir / "photos"
+    else:
+        resolved_photos_dir = photos_dir
+
+    if previews_dir is None:
+        if data_dir is None:
+            raise ValueError("Either previews_dir or data_dir must be provided.")
+        resolved_previews_dir = data_dir / "previews"
+    else:
+        resolved_previews_dir = previews_dir
+
     if not _SAFE_SLUG_RE.match(camera_slug):
         raise ValueError(f"Invalid camera_slug for filesystem path: {camera_slug!r}")
     if captured_at_utc.tzinfo is None or captured_at_utc.utcoffset() is None:
@@ -524,11 +540,15 @@ def store_dual_tier_capture(
 
     preview_bytes, orig_width, orig_height = build_preview_webp(image_bytes)
 
-    original_abs_path = data_dir / "photos" / original_rel_path
-    preview_abs_path = data_dir / "previews" / preview_rel_path
+    original_abs_path = resolved_photos_dir / original_rel_path
+    preview_abs_path = resolved_previews_dir / preview_rel_path
 
     _atomic_write_bytes(original_abs_path, image_bytes)
-    _atomic_write_bytes(preview_abs_path, preview_bytes)
+    try:
+        _atomic_write_bytes(preview_abs_path, preview_bytes)
+    except BaseException:
+        original_abs_path.unlink(missing_ok=True)
+        raise
 
     return StoredCapture(
         captured_at_utc=utc_dt,

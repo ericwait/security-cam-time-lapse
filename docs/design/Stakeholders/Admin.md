@@ -23,7 +23,9 @@ capture healthy.
   than static configuration files on disk `(decision 2026-11-18, bootstrap)`.
 - User accounts and their assigned role (`Admin` or `Viewer`)
   `(decision 2026-11-18, bootstrap)`.
-- System-level settings (default timezone, render cache TTL, tolerance defaults).
+- System-level settings (storage directory paths for full-res photos, previews,
+  and ephemeral render cache with automatic file relocation, default timezone,
+  render cache TTL, and tolerance defaults) `(decision 2026-11-18, storage-paths)`.
 
 ## Value this role receives
 

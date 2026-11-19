@@ -15,6 +15,7 @@ import type {
   SystemSettings,
   TimelapseQueryPayload,
   TimelapseQueryResponse,
+  UpdateSystemSettingsPayload,
   UpdateUserPayload,
   User,
 } from "./types";
@@ -243,7 +244,9 @@ export async function fetchAdminSettings(): Promise<SystemSettings> {
   return apiRequest<SystemSettings>("/api/admin/settings");
 }
 
-export async function updateAdminSettings(payload: SystemSettings): Promise<SystemSettings> {
+export async function updateAdminSettings(
+  payload: UpdateSystemSettingsPayload,
+): Promise<SystemSettings> {
   return apiRequest<SystemSettings>("/api/admin/settings", {
     method: "PUT",
     body: JSON.stringify(payload),

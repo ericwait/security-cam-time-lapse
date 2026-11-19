@@ -2,6 +2,10 @@
 
 import json
 import os
+import posixpath
+import shutil
+import threading
+import uuid
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -63,6 +67,43 @@ SYSTEM_PREFERENCES_KEY: Final[str] = "system.preferences"
 DEFAULT_TIMEZONE: Final[str] = "America/Chicago"
 DEFAULT_RENDER_CACHE_TTL_HOURS: Final[int] = 24
 DEFAULT_TOLERANCE_MINUTES: Final[int] = 15
+DEFAULT_PHOTOS_DIR: Final[str] = "/data/photos"
+DEFAULT_PREVIEWS_DIR: Final[str] = "/data/previews"
+DEFAULT_RENDERS_DIR: Final[str] = "/data/cache/renders"
+
+_FORBIDDEN_STORAGE_PREFIXES: Final[tuple[str, ...]] = (
+    "/bin",
+    "/boot",
+    "/dev",
+    "/etc",
+    "/lib",
+    "/lib64",
+    "/proc",
+    "/root",
+    "/run",
+    "/sbin",
+    "/sys",
+    "/usr",
+    "/var/lib",
+    "/var/log",
+    "/var/run",
+    "/var/spool",
+    "/workspace",
+    "/home/appuser/.venv",
+)
+_FORBIDDEN_EXACT_STORAGE_PATHS: Final[frozenset[str]] = frozenset(
+    {"/", "/var", "/private", "/private/var"}
+)
+_STORAGE_MIGRATION_LOCK: Final[threading.RLock] = threading.RLock()
+
+
+@dataclass(frozen=True, slots=True)
+class EffectiveStoragePaths:
+    """Resolved container storage directories for photos, previews, and render cache."""
+
+    photos_dir: Path
+    previews_dir: Path
+    renders_dir: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,14 +241,33 @@ def camera_to_viewer_out(
     )
 
 
-def get_system_preferences(session: Session) -> SystemPreferencesOut:
-    """Load global system preferences from SQLite with safe defaults."""
+def _resolve_stored_dir(raw_val: object, fallback: str) -> str:
+    if isinstance(raw_val, str):
+        cleaned = raw_val.strip()
+        if cleaned and "\x00" not in cleaned and cleaned.startswith("/"):
+            return posixpath.normpath("/" + cleaned.lstrip("/"))
+    return fallback
+
+
+def get_system_preferences(
+    session: Session,
+    settings: Settings | None = None,
+) -> SystemPreferencesOut:
+    """Load global system preferences and active storage paths from SQLite with safe defaults."""
+    default_photos = str(settings.photos_dir) if settings is not None else DEFAULT_PHOTOS_DIR
+    default_previews = str(settings.previews_dir) if settings is not None else DEFAULT_PREVIEWS_DIR
+    default_renders = str(settings.renders_dir) if settings is not None else DEFAULT_RENDERS_DIR
+
     setting = session.get(SystemSetting, SYSTEM_PREFERENCES_KEY)
     if setting is None:
         return SystemPreferencesOut(
             default_timezone=DEFAULT_TIMEZONE,
             render_cache_ttl_hours=DEFAULT_RENDER_CACHE_TTL_HOURS,
             default_tolerance_minutes=DEFAULT_TOLERANCE_MINUTES,
+            photos_dir=default_photos,
+            previews_dir=default_previews,
+            renders_dir=default_renders,
+            migrated_files_count=0,
         )
 
     try:
@@ -238,54 +298,285 @@ def get_system_preferences(session: Session) -> SystemPreferencesOut:
         else DEFAULT_TOLERANCE_MINUTES
     )
 
+    resolved_photos = _resolve_stored_dir(raw.get("photos_dir"), default_photos)
+    resolved_previews = _resolve_stored_dir(raw.get("previews_dir"), default_previews)
+    resolved_renders = _resolve_stored_dir(raw.get("renders_dir"), default_renders)
+
     return SystemPreferencesOut(
         default_timezone=resolved_tz,
         render_cache_ttl_hours=resolved_ttl,
         default_tolerance_minutes=resolved_tol,
+        photos_dir=resolved_photos,
+        previews_dir=resolved_previews,
+        renders_dir=resolved_renders,
+        migrated_files_count=0,
     )
+
+
+def get_effective_storage_paths(
+    session: Session,
+    settings: Settings,
+) -> EffectiveStoragePaths:
+    """Resolve the active photos, previews, and render cache directories."""
+    prefs = get_system_preferences(session, settings)
+    return EffectiveStoragePaths(
+        photos_dir=Path(prefs.photos_dir),
+        previews_dir=Path(prefs.previews_dir),
+        renders_dir=Path(prefs.renders_dir),
+    )
+
+
+def _validate_storage_path_safety(raw_path: str, settings: Settings | None) -> Path:
+    norm_str = posixpath.normpath("/" + raw_path.strip().lstrip("/"))
+    norm_path = Path(norm_str)
+    try:
+        resolved = Path(raw_path).resolve()
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid storage directory path '{raw_path}': {exc}",
+        ) from None
+
+    if (
+        str(norm_path) in _FORBIDDEN_EXACT_STORAGE_PATHS
+        or str(resolved) in _FORBIDDEN_EXACT_STORAGE_PATHS
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Storage directory '{raw_path}' cannot target a restricted system root",
+        )
+
+    for prefix in _FORBIDDEN_STORAGE_PREFIXES:
+        prefix_path = Path(prefix)
+        if norm_path == prefix_path or norm_path.is_relative_to(prefix_path):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Storage directory '{raw_path}' cannot be inside system path '{prefix}'",
+            )
+        if resolved == prefix_path or resolved.is_relative_to(prefix_path):
+            raise HTTPException(
+                status_code=422,
+                detail=f"Storage directory '{raw_path}' cannot be inside system path '{prefix}'",
+            )
+        with suppress(OSError, RuntimeError):
+            resolved_prefix = prefix_path.resolve()
+            if resolved == resolved_prefix or resolved.is_relative_to(resolved_prefix):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Storage directory '{raw_path}' cannot be inside system path '{prefix}'"
+                    ),
+                )
+
+    if settings is not None:
+        db_file = settings.db_path.resolve()
+        db_dir = db_file.parent
+        if db_file.is_relative_to(resolved) or resolved.is_relative_to(db_dir):
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Storage directory '{raw_path}' must not overlap or contain the SQLite "
+                    f"database directory '{db_dir}'"
+                ),
+            )
+
+    return resolved
+
+
+def _validate_non_overlapping_paths(
+    photos_resolved: Path,
+    previews_resolved: Path,
+    renders_resolved: Path,
+) -> None:
+    tiers = (photos_resolved, previews_resolved, renders_resolved)
+    for idx, path_a in enumerate(tiers):
+        for path_b in tiers[idx + 1 :]:
+            if path_a == path_b or path_a.is_relative_to(path_b) or path_b.is_relative_to(path_a):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Photos, previews, and render cache directories must be "
+                        "distinct non-overlapping paths"
+                    ),
+                )
+
+
+def _probe_directory_writable(path: Path) -> None:
+    probe_file = path / f".write_probe_{uuid.uuid4().hex}.tmp"
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe_file.write_bytes(b"ok")
+        probe_file.unlink()
+    except OSError as exc:
+        with suppress(OSError):
+            probe_file.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Storage directory '{path}' is not writable inside the container: {exc}",
+        ) from None
+
+
+def _collect_migratable_files(root_dir: Path) -> list[Path]:
+    if not root_dir.is_dir():
+        return []
+    files: list[Path] = []
+    for candidate in sorted(root_dir.rglob("*")):
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        if candidate.name.endswith(".tmp") or candidate.name.startswith(".write_probe_"):
+            continue
+        files.append(candidate)
+    return files
+
+
+def _prune_empty_child_dirs(root_dir: Path) -> None:
+    if not root_dir.is_dir():
+        return
+    subdirs = [item for item in root_dir.rglob("*") if item.is_dir() and not item.is_symlink()]
+    for subdir in sorted(subdirs, key=lambda p: len(p.parts), reverse=True):
+        if subdir == root_dir:
+            continue
+        with suppress(OSError):
+            subdir.rmdir()
+
+
+def _migrate_storage_tiers(tier_pairs: list[tuple[Path, Path]]) -> int:
+    plans: list[tuple[Path, Path, list[Path]]] = []
+    for old_dir, new_dir in tier_pairs:
+        if old_dir.resolve() == new_dir.resolve() or not old_dir.exists():
+            continue
+        plans.append((old_dir, new_dir, _collect_migratable_files(old_dir)))
+
+    moved_records: list[tuple[Path, Path]] = []
+    for old_dir, new_dir, files in plans:
+        try:
+            for src in files:
+                rel = src.relative_to(old_dir)
+                dst = new_dir / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
+                moved_records.append((dst, src))
+        except OSError as exc:
+            for moved_dst, orig_src in reversed(moved_records):
+                with suppress(OSError):
+                    orig_src.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(moved_dst), str(orig_src))
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to migrate existing files to '{new_dir}': {exc}",
+            ) from None
+
+    for old_dir, _new_dir, _files in plans:
+        _prune_empty_child_dirs(old_dir)
+
+    return len(moved_records)
 
 
 def update_system_preferences(
     session: Session,
     payload: SystemPreferencesUpdate,
+    settings: Settings | None = None,
 ) -> SystemPreferencesOut:
-    """Persist updated global system preferences into SQLite."""
-    current = get_system_preferences(session)
-    merged = SystemPreferencesOut(
-        default_timezone=(
+    """Validate, migrate storage files if relocated, and persist global system preferences."""
+    with _STORAGE_MIGRATION_LOCK:
+        current = get_system_preferences(session, settings)
+        next_timezone = (
             payload.default_timezone
             if payload.default_timezone is not None
             else current.default_timezone
-        ),
-        render_cache_ttl_hours=(
+        )
+        next_ttl = (
             payload.render_cache_ttl_hours
             if payload.render_cache_ttl_hours is not None
             else current.render_cache_ttl_hours
-        ),
-        default_tolerance_minutes=(
+        )
+        next_tolerance = (
             payload.default_tolerance_minutes
             if payload.default_tolerance_minutes is not None
             else current.default_tolerance_minutes
-        ),
-    )
-
-    now = datetime.now(UTC)
-    serialized = json.dumps(merged.model_dump())
-    existing = session.get(SystemSetting, SYSTEM_PREFERENCES_KEY)
-    if existing is None:
-        session.add(
-            SystemSetting(
-                key=SYSTEM_PREFERENCES_KEY,
-                value_json=serialized,
-                updated_at=now,
-            )
         )
-    else:
-        existing.value_json = serialized
-        existing.updated_at = now
+        next_photos_str = payload.photos_dir or current.photos_dir
+        next_previews_str = payload.previews_dir or current.previews_dir
+        next_renders_str = payload.renders_dir or current.renders_dir
 
-    session.commit()
-    return merged
+        path_updates = (payload.photos_dir, payload.previews_dir, payload.renders_dir)
+        any_path_supplied = any(val is not None for val in path_updates)
+        migrated_count = 0
+
+        if any_path_supplied:
+            photos_resolved = _validate_storage_path_safety(next_photos_str, settings)
+            previews_resolved = _validate_storage_path_safety(next_previews_str, settings)
+            renders_resolved = _validate_storage_path_safety(next_renders_str, settings)
+            _validate_non_overlapping_paths(
+                photos_resolved,
+                previews_resolved,
+                renders_resolved,
+            )
+
+            old_photos = Path(current.photos_dir)
+            old_previews = Path(current.previews_dir)
+            old_renders = Path(current.renders_dir)
+            new_photos = Path(next_photos_str)
+            new_previews = Path(next_previews_str)
+            new_renders = Path(next_renders_str)
+
+            if old_renders.resolve() != renders_resolved:
+                running_renders = int(
+                    session.scalar(
+                        select(func.count())
+                        .select_from(RenderJob)
+                        .where(RenderJob.status == "running")
+                    )
+                    or 0
+                )
+                if running_renders > 0:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "Wait for active MP4 export to finish before relocating the "
+                            "render cache directory"
+                        ),
+                    )
+
+            _probe_directory_writable(new_photos)
+            _probe_directory_writable(new_previews)
+            _probe_directory_writable(new_renders)
+
+            migrated_count = _migrate_storage_tiers(
+                [
+                    (old_photos, new_photos),
+                    (old_previews, new_previews),
+                    (old_renders, new_renders),
+                ]
+            )
+
+        merged = SystemPreferencesOut(
+            default_timezone=next_timezone,
+            render_cache_ttl_hours=next_ttl,
+            default_tolerance_minutes=next_tolerance,
+            photos_dir=next_photos_str,
+            previews_dir=next_previews_str,
+            renders_dir=next_renders_str,
+            migrated_files_count=migrated_count,
+        )
+
+        now = datetime.now(UTC)
+        serialized = json.dumps(merged.model_dump(exclude={"migrated_files_count"}))
+        existing = session.get(SystemSetting, SYSTEM_PREFERENCES_KEY)
+        if existing is None:
+            session.add(
+                SystemSetting(
+                    key=SYSTEM_PREFERENCES_KEY,
+                    value_json=serialized,
+                    updated_at=now,
+                )
+            )
+        else:
+            existing.value_json = serialized
+            existing.updated_at = now
+
+        session.commit()
+        return merged
 
 
 def ensure_bootstrap_admin(
@@ -364,6 +655,7 @@ def execute_camera_capture(
     effective_utc = (
         ensure_utc(captured_at_utc) if captured_at_utc is not None else datetime.now(UTC)
     )
+    paths = get_effective_storage_paths(session, settings)
     try:
         decrypted_secret = decrypt_camera_secret(settings, camera)
         source = build_capture_source_config(camera, secret=decrypted_secret)
@@ -373,13 +665,14 @@ def execute_camera_capture(
             http_transport=http_transport,
         )
         stored = store_dual_tier_capture(
-            data_dir=settings.data_dir,
+            photos_dir=paths.photos_dir,
+            previews_dir=paths.previews_dir,
             camera_slug=camera.slug,
             captured_at_utc=effective_utc,
             camera_timezone=camera.timezone,
             image_bytes=image_bytes,
         )
-    except (CaptureError, SecretDecryptionError, ValueError) as exc:
+    except (CaptureError, SecretDecryptionError, ValueError, OSError) as exc:
         sanitized_error = scrub_secrets(str(exc), [decrypted_secret])
         now = datetime.now(UTC)
         camera.last_capture_status = "error"
@@ -532,10 +825,11 @@ def reap_expired_render_jobs(
     if not expired:
         return 0
 
+    paths = get_effective_storage_paths(session, settings)
     reaped_count = 0
     for item in expired:
         with suppress(ValueError):
-            unlink_render_artifact(settings.renders_dir, item.output_rel_path)
+            unlink_render_artifact(paths.renders_dir, item.output_rel_path)
         job = item.orm_job
         if job.status != "expired" or job.output_rel_path is not None:
             reaped_count += 1
@@ -555,15 +849,16 @@ def run_render_job(
     options: ExportOptions,
 ) -> None:
     """Execute FFmpeg MP4 rendering for job_id and persist progress and completion state."""
-    with session_factory() as session:
+    with _STORAGE_MIGRATION_LOCK, session_factory() as session:
         job = session.get(RenderJob, job_id)
         if job is None:
             return
+        paths = get_effective_storage_paths(session, settings)
         job.status = "running"
         session.commit()
 
     output_rel_path = f"{job_id}.mp4"
-    output_path = settings.renders_dir / output_rel_path
+    output_path = paths.renders_dir / output_rel_path
     last_reported = 0
 
     def _on_progress(processed: int, _total: int) -> None:

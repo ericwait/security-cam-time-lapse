@@ -75,6 +75,9 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
     default_timezone: "America/Chicago",
     render_cache_ttl_hours: 24,
     default_tolerance_minutes: 15,
+    photos_dir: "/data/photos",
+    previews_dir: "/data/previews",
+    renders_dir: "/data/cache/renders",
   });
   const [storageLoading, setStorageLoading] = useState(false);
   const [storageError, setStorageError] = useState<string | null>(null);
@@ -345,15 +348,39 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
     }
   }
 
+  function handleResetStoragePaths(): void {
+    setSettings((prev) => ({
+      ...prev,
+      photos_dir: "/data/photos",
+      previews_dir: "/data/previews",
+      renders_dir: "/data/cache/renders",
+    }));
+  }
+
   async function handleSaveSettings(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setStorageError(null);
     setSettingsSuccess(null);
     setSavingSettings(true);
     try {
-      const updated = await updateAdminSettings(settings);
+      const updated = await updateAdminSettings({
+        default_timezone: settings.default_timezone.trim(),
+        render_cache_ttl_hours: settings.render_cache_ttl_hours,
+        default_tolerance_minutes: settings.default_tolerance_minutes,
+        photos_dir: settings.photos_dir.trim(),
+        previews_dir: settings.previews_dir.trim(),
+        renders_dir: settings.renders_dir.trim(),
+      });
       setSettings(updated);
-      setSettingsSuccess("System defaults saved.");
+      const refreshedStorage = await fetchAdminStorage();
+      setStorage(refreshedStorage);
+      if ((updated.migrated_files_count ?? 0) > 0) {
+        setSettingsSuccess(
+          `Settings saved — automatically moved ${updated.migrated_files_count} existing file(s) to the new storage paths.`,
+        );
+      } else {
+        setSettingsSuccess("Storage paths and system defaults saved.");
+      }
     } catch (err) {
       setStorageError(err instanceof Error ? err.message : "Failed to save system settings.");
     } finally {
@@ -970,17 +997,6 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
 
       {subTab === "storage" && (
         <>
-          {storageError && (
-            <p role="alert" className="error-banner">
-              {storageError}
-            </p>
-          )}
-          {settingsSuccess && (
-            <p role="status" className="success-banner">
-              {settingsSuccess}
-            </p>
-          )}
-
           <section className="card" aria-labelledby="storage-capacity-heading">
             <div className="card-header">
               <h3 id="storage-capacity-heading" className="subsection-title">
@@ -993,8 +1009,10 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
               )}
             </div>
 
-            {storageLoading || !storage ? (
+            {storageLoading ? (
               <p className="section-copy">Loading disk metrics…</p>
+            ) : !storage ? (
+              <p className="section-copy">Disk metrics unavailable.</p>
             ) : (
               <div className="storage-stack">
                 <progress
@@ -1015,14 +1033,23 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
                   <div className="metric-box">
                     <dt className="metric-label">Untouched Originals</dt>
                     <dd className="metric-value">{formatBytes(storage.photos_bytes)}</dd>
+                    <dd className="metric-path">
+                      <code>{storage.photos_dir}</code>
+                    </dd>
                   </div>
                   <div className="metric-box">
                     <dt className="metric-label">WebP Previews</dt>
                     <dd className="metric-value">{formatBytes(storage.previews_bytes)}</dd>
+                    <dd className="metric-path">
+                      <code>{storage.previews_dir}</code>
+                    </dd>
                   </div>
                   <div className="metric-box">
                     <dt className="metric-label">Ephemeral MP4 Cache</dt>
                     <dd className="metric-value">{formatBytes(storage.renders_bytes)}</dd>
+                    <dd className="metric-path">
+                      <code>{storage.renders_dir}</code>
+                    </dd>
                   </div>
                   <div className="metric-box">
                     <dt className="metric-label">Total Frames</dt>
@@ -1040,76 +1067,185 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
           <section className="card" aria-labelledby="system-defaults-heading">
             <div className="card-header">
               <h3 id="system-defaults-heading" className="subsection-title">
-                System Defaults
+                Storage Paths &amp; System Defaults
               </h3>
             </div>
 
-            <form className="form-stack" onSubmit={handleSaveSettings}>
-              <div className="form-grid">
-                <div className="form-field">
-                  <label htmlFor="settings-default-timezone" className="form-label">
-                    Default Timezone
-                  </label>
-                  <input
-                    id="settings-default-timezone"
-                    type="text"
-                    className="form-input"
-                    value={settings.default_timezone}
-                    onChange={(event) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        default_timezone: event.target.value,
-                      }))
-                    }
-                    required
-                  />
+            <form data-testid="settings-form" className="form-stack" onSubmit={handleSaveSettings}>
+              <div className="form-section">
+                <div className="form-section-header">
+                  <h4 className="form-section-title">Container Storage Directories</h4>
+                  <p className="field-hint">
+                    Enter absolute paths inside the container matching your Docker volume mounts.
+                    Changing a directory verifies write access and automatically moves existing
+                    files to the new path.
+                  </p>
                 </div>
 
-                <div className="form-field">
-                  <label htmlFor="settings-cache-ttl" className="form-label">
-                    Render Cache TTL (hours)
-                  </label>
-                  <input
-                    id="settings-cache-ttl"
-                    type="number"
-                    min={1}
-                    max={720}
-                    className="form-input"
-                    value={settings.render_cache_ttl_hours}
-                    onChange={(event) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        render_cache_ttl_hours: Math.max(1, Number(event.target.value) || 24),
-                      }))
-                    }
-                    required
-                  />
+                <div className="form-grid">
+                  <div className="form-field">
+                    <label htmlFor="settings-photos-dir" className="form-label">
+                      Full-Res Photos Directory
+                    </label>
+                    <input
+                      id="settings-photos-dir"
+                      data-testid="settings-photos-dir"
+                      type="text"
+                      className="form-input"
+                      placeholder="/data/photos"
+                      value={settings.photos_dir}
+                      onChange={(event) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          photos_dir: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label htmlFor="settings-previews-dir" className="form-label">
+                      WebP Previews Directory
+                    </label>
+                    <input
+                      id="settings-previews-dir"
+                      data-testid="settings-previews-dir"
+                      type="text"
+                      className="form-input"
+                      placeholder="/data/previews"
+                      value={settings.previews_dir}
+                      onChange={(event) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          previews_dir: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label htmlFor="settings-renders-dir" className="form-label">
+                      MP4 Render Cache Directory
+                    </label>
+                    <input
+                      id="settings-renders-dir"
+                      data-testid="settings-renders-dir"
+                      type="text"
+                      className="form-input"
+                      placeholder="/data/cache/renders"
+                      value={settings.renders_dir}
+                      onChange={(event) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          renders_dir: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </div>
                 </div>
 
-                <div className="form-field">
-                  <label htmlFor="settings-default-tolerance" className="form-label">
-                    Default Mode 2 Tolerance (minutes)
-                  </label>
-                  <input
-                    id="settings-default-tolerance"
-                    type="number"
-                    min={0}
-                    max={720}
-                    className="form-input"
-                    value={settings.default_tolerance_minutes}
-                    onChange={(event) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        default_tolerance_minutes: Math.max(0, Number(event.target.value) || 0),
-                      }))
-                    }
-                    required
-                  />
+                <div className="button-group">
+                  <button
+                    type="button"
+                    data-testid="reset-storage-paths-button"
+                    className="btn btn--secondary"
+                    onClick={handleResetStoragePaths}
+                  >
+                    Reset Paths to /data Defaults
+                  </button>
                 </div>
               </div>
 
+              <div className="form-section">
+                <div className="form-section-header">
+                  <h4 className="form-section-title">Operational Defaults</h4>
+                </div>
+
+                <div className="form-grid">
+                  <div className="form-field">
+                    <label htmlFor="settings-default-timezone" className="form-label">
+                      Default Timezone
+                    </label>
+                    <input
+                      id="settings-default-timezone"
+                      type="text"
+                      className="form-input"
+                      value={settings.default_timezone}
+                      onChange={(event) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          default_timezone: event.target.value,
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label htmlFor="settings-cache-ttl" className="form-label">
+                      Render Cache TTL (hours)
+                    </label>
+                    <input
+                      id="settings-cache-ttl"
+                      type="number"
+                      min={1}
+                      max={720}
+                      className="form-input"
+                      value={settings.render_cache_ttl_hours}
+                      onChange={(event) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          render_cache_ttl_hours: Math.max(1, Number(event.target.value) || 24),
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+
+                  <div className="form-field">
+                    <label htmlFor="settings-default-tolerance" className="form-label">
+                      Default Mode 2 Tolerance (minutes)
+                    </label>
+                    <input
+                      id="settings-default-tolerance"
+                      type="number"
+                      min={0}
+                      max={720}
+                      className="form-input"
+                      value={settings.default_tolerance_minutes}
+                      onChange={(event) =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          default_tolerance_minutes: Math.max(0, Number(event.target.value) || 0),
+                        }))
+                      }
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {storageError && (
+                <p role="alert" className="error-banner">
+                  {storageError}
+                </p>
+              )}
+              {settingsSuccess && (
+                <p role="status" className="success-banner">
+                  {settingsSuccess}
+                </p>
+              )}
+
               <div className="form-actions">
-                <button type="submit" className="btn btn--primary" disabled={savingSettings}>
+                <button
+                  type="submit"
+                  data-testid="save-settings-button"
+                  className="btn btn--primary"
+                  disabled={savingSettings}
+                >
                   {savingSettings ? "Saving..." : "Save Settings"}
                 </button>
               </div>

@@ -177,6 +177,19 @@ export interface SystemSettings {
   default_timezone: string;
   render_cache_ttl_hours: number;
   default_tolerance_minutes: number;
+  photos_dir: string;
+  previews_dir: string;
+  renders_dir: string;
+  migrated_files_count?: number;
+}
+
+export interface UpdateSystemSettingsPayload {
+  default_timezone?: string;
+  render_cache_ttl_hours?: number;
+  default_tolerance_minutes?: number;
+  photos_dir?: string;
+  previews_dir?: string;
+  renders_dir?: string;
 }
 
 export interface StorageStats {
@@ -188,4 +201,7 @@ export interface StorageStats {
   renders_bytes: number;
   total_frames: number;
   active_renders: number;
+  photos_dir: string;
+  previews_dir: string;
+  renders_dir: string;
 }

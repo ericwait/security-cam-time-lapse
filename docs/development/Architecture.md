@@ -58,3 +58,9 @@ behavioral toggles `(decision 2026-11-18, bootstrap)`:
   cache/
     renders/                             # Ephemeral MP4 exports (reaped after 24h TTL)
 ```
+
+`photos/`, `previews/`, and `cache/renders/` are the default container paths;
+`Admin` users can point each tier individually to any mounted container volume
+path via **Admin Console → Storage & Settings**, which verifies write access and
+automatically migrates existing files without rewriting relative database paths
+`(decision 2026-11-18, storage-paths)`.

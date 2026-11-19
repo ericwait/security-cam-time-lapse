@@ -17,6 +17,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Configurable container storage paths for full-resolution photos, WebP previews, and ephemeral MP4 renders in **Admin Console → Storage & Settings**, with write-permission validation and automatic existing-file migration.
 - Multi-user `Admin` and `Viewer` session authentication, `BOOTSTRAP_ADMIN_PASSWORD` initial seeding, first-run Web UI admin onboarding wizard, and self-service password rotation.
 - Admin Console in the Web UI for managing RTSP, HTTP(S) (`Basic`/`Digest`/`Bearer`), and synthetic cameras with HKDF-Fernet encrypted credentials at rest, live connection preview testing, manual capture triggers, user management, system defaults, and host volume capacity telemetry.
 - Scheduled dual-tier capture pipeline preserving untouched full-resolution JPEG originals under `<camera>/<YYYY>/<MM>/<DD>/` alongside 1080p WebP previews, plus deterministic DST-spanning synthetic courtyard camera history seeded by `just dev`.
