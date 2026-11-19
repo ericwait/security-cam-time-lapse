@@ -170,6 +170,7 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
     setCamTestingForm(true);
     try {
       const probe = await testCameraConnection({
+        camera_id: editingCameraId,
         name: camName.trim() || "Connection Test",
         source_type: camSourceType,
         source_url: camSourceUrl.trim(),

@@ -144,6 +144,7 @@ export interface CameraUpsertPayload {
 export type CameraPatchPayload = Partial<CameraUpsertPayload>;
 
 export interface CameraTestConnectionPayload {
+  camera_id?: number | null;
   name?: string;
   source_type: CameraSourceType;
   source_url: string;
