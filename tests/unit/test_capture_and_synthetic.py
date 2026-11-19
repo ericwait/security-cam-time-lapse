@@ -356,3 +356,111 @@ def test_fetch_frame_bytes_rtsp_redacts_stderr_credentials_and_builds_authed_url
 
     monkeypatch.setattr(subprocess, "run", fake_run_success)
     assert fetch_frame_bytes(rtsp_cfg) == sample_jpeg
+
+
+def test_reolink_cgi_login_snap_logout_and_bare_host_autodiscovery() -> None:
+    sample_jpeg = _make_sample_jpeg(1920, 1080)
+    calls: list[tuple[str, str]] = []
+    cam_pass = "ReolinkTestPass!42"
+
+    def reolink_handler(request: httpx.Request) -> httpx.Response:
+        path_q = request.url.raw_path.decode("ascii")
+        calls.append((request.method, path_q))
+        if request.url.path == "/":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                text="<!doctype html><html><body>Reolink Web</body></html>",
+                request=request,
+            )
+        if "cmd=Login" in path_q and request.method == "POST":
+            return httpx.Response(
+                200,
+                json=[{"cmd": "Login", "code": 0, "value": {"Token": {"name": "tok123"}}}],
+                request=request,
+            )
+        if "cmd=Snap" in path_q and "token=tok123" in path_q:
+            return httpx.Response(
+                200,
+                headers={"content-type": "image/jpeg"},
+                content=sample_jpeg,
+                request=request,
+            )
+        if "cmd=Snap" in path_q:
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                text=(
+                    '[{"cmd":"Snap","code":1,"error":{"detail":"please login first","rspCode":-6}}]'
+                ),
+                request=request,
+            )
+        if "cmd=Logout" in path_q and "token=tok123" in path_q:
+            return httpx.Response(
+                200,
+                json=[{"cmd": "Logout", "code": 0, "value": {"rspCode": 200}}],
+                request=request,
+            )
+        return httpx.Response(404, request=request)
+
+    bare_reolink_cfg = CaptureSourceConfig(
+        camera_name="Driveway Reolink",
+        camera_slug="driveway-reolink",
+        source_type="http",
+        source_url="https://192.168.1.2",
+        auth_type="digest",
+        auth_username="admin",
+        secret=cam_pass,
+    )
+    fetched = fetch_frame_bytes(
+        bare_reolink_cfg,
+        http_transport=httpx.MockTransport(reolink_handler),
+    )
+    assert fetched == sample_jpeg
+    assert any("cmd=Login" in p for _, p in calls)
+    assert any("cmd=Logout" in p for _, p in calls)
+
+
+def test_rtsp_bare_host_falls_back_to_reolink_preview_01_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sample_jpeg = _make_sample_jpeg(1920, 1080)
+    seen_urls: list[str] = []
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        capture_output: bool,
+        timeout: float,
+        check: bool,
+    ) -> subprocess.CompletedProcess[bytes]:
+        assert capture_output and not check and timeout == 20.0
+        url_arg = cmd[cmd.index("-i") + 1]
+        seen_urls.append(url_arg)
+        if url_arg.endswith("/Preview_01_main"):
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0, stdout=sample_jpeg, stderr=b""
+            )
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=1,
+            stdout=b"",
+            stderr=b"Server returned 404 Not Found",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    bare_rtsp_cfg = CaptureSourceConfig(
+        camera_name="Backyard Reolink",
+        camera_slug="backyard-reolink",
+        source_type="rtsp",
+        source_url="rtsp://192.168.1.2",
+        auth_type="digest",
+        auth_username="admin",
+        secret="CamPass99",
+    )
+    assert fetch_frame_bytes(bare_rtsp_cfg) == sample_jpeg
+    assert seen_urls == [
+        "rtsp://admin:CamPass99@192.168.1.2",
+        "rtsp://admin:CamPass99@192.168.1.2/Preview_01_main",
+    ]

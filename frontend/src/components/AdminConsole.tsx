@@ -609,6 +609,21 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
                       setCamSourceType(nextType);
                       if (nextType === "synthetic" && !camSourceUrl.startsWith("synthetic://")) {
                         setCamSourceUrl("synthetic://garden");
+                      } else if (
+                        nextType !== "synthetic" &&
+                        camSourceUrl.startsWith("synthetic://")
+                      ) {
+                        setCamSourceUrl("");
+                      }
+                      if (
+                        editingCameraId === null &&
+                        nextType !== "synthetic" &&
+                        camAuthType === "none"
+                      ) {
+                        setCamAuthType("digest");
+                        if (!camAuthUsername) {
+                          setCamAuthUsername("admin");
+                        }
                       }
                     }}
                   >
@@ -626,10 +641,28 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
                     id="camera-source-url-input"
                     type="text"
                     className="form-input"
+                    placeholder={
+                      camSourceType === "rtsp"
+                        ? "rtsp://192.168.1.2:554/Preview_01_main"
+                        : camSourceType === "http"
+                          ? "https://192.168.1.2/cgi-bin/api.cgi?cmd=Snap&channel=0"
+                          : "synthetic://garden"
+                    }
                     value={camSourceUrl}
                     onChange={(event) => setCamSourceUrl(event.target.value)}
                     required
                   />
+                  {camSourceType === "http" && (
+                    <span className="field-hint">
+                      Reolink HTTP/HTTPS (e.g. https://192.168.1.2) and standard snapshot URLs
+                      supported
+                    </span>
+                  )}
+                  {camSourceType === "rtsp" && (
+                    <span className="field-hint">
+                      Reolink full-res stream: rtsp://192.168.1.2:554/Preview_01_main
+                    </span>
+                  )}
                 </div>
 
                 <div className="form-field">
@@ -726,6 +759,12 @@ export function AdminConsole({ currentUser }: AdminConsoleProps) {
                   </label>
                 </div>
               </div>
+
+              {cameraBannerError && (
+                <p role="alert" className="error-banner">
+                  {cameraBannerError}
+                </p>
+              )}
 
               {formProbe && (
                 <div className="probe-preview-box">

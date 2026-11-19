@@ -1,15 +1,18 @@
 """Pluggable camera frame acquisition, credential redaction, and dual-tier storage."""
 
+import ipaddress
+import json
 import os
 import re
 import subprocess
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Final, Literal
-from urllib.parse import quote, quote_plus, urlsplit, urlunsplit
+from urllib.parse import SplitResult, parse_qs, quote, quote_plus, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -101,6 +104,131 @@ def _verify_decodable_image(image_bytes: bytes, *, secret: str | None = None) ->
         raise CaptureError("Decoded image has invalid zero dimensions.", secret=secret)
 
 
+def _is_private_or_local_host(hostname: str | None) -> bool:
+    """Return True for RFC1918/loopback/link-local IPs and .local/.lan mDNS camera hosts."""
+    if not hostname:
+        return False
+    lowered = hostname.strip().lower()
+    if lowered == "localhost" or lowered.endswith((".local", ".lan", ".home.arpa")):
+        return True
+    try:
+        addr = ipaddress.ip_address(lowered)
+    except ValueError:
+        return False
+    return bool(addr.is_private or addr.is_loopback or addr.is_link_local)
+
+
+def _is_reolink_cgi_url(parsed: SplitResult) -> bool:
+    return parsed.path.rstrip("/").lower().endswith("/cgi-bin/api.cgi")
+
+
+def _extract_reolink_login_token(
+    body_text: str,
+    *,
+    secret: str | None = None,
+) -> str:
+    try:
+        parsed_json: object = json.loads(body_text)
+    except ValueError as exc:
+        raise CaptureError(
+            "Reolink CGI login returned invalid JSON response.",
+            secret=secret,
+        ) from exc
+
+    if not isinstance(parsed_json, list) or not parsed_json:
+        raise CaptureError("Unexpected Reolink CGI login payload.", secret=secret)
+
+    first = parsed_json[0]
+    if not isinstance(first, dict):
+        raise CaptureError("Unexpected Reolink CGI login item.", secret=secret)
+
+    code = first.get("code")
+    if code != 0:
+        err_obj = first.get("error")
+        detail = "authentication rejected"
+        rsp_code: object = "unknown"
+        if isinstance(err_obj, dict):
+            detail = str(err_obj.get("detail", detail))
+            rsp_code = err_obj.get("rspCode", rsp_code)
+        raise CaptureError(
+            f"Reolink login failed ({detail}, rspCode={rsp_code}). "
+            "Verify Camera Username (usually 'admin') and Password.",
+            secret=secret,
+        )
+
+    val_obj = first.get("value")
+    if isinstance(val_obj, dict):
+        tok_obj = val_obj.get("Token")
+        if isinstance(tok_obj, dict):
+            token_name = tok_obj.get("name")
+            if isinstance(token_name, str) and token_name:
+                return token_name
+
+    raise CaptureError("Reolink CGI login response did not include a session token.", secret=secret)
+
+
+def _fetch_reolink_cgi_snapshot(
+    client: httpx.Client,
+    *,
+    scheme: str,
+    netloc: str,
+    channel: str,
+    username: str | None,
+    secret: str | None,
+) -> bytes:
+    """Authenticate against Reolink's CGI API, grab a full-res Snap JPEG, and log out."""
+    if not username or not secret:
+        raise CaptureError(
+            "Reolink camera requires credentials: set Authentication to 'digest' or 'basic' "
+            "and enter your Reolink username (usually 'admin') and password.",
+            secret=secret,
+        )
+
+    api_base = f"{scheme}://{netloc}/cgi-bin/api.cgi"
+    login_payload = [
+        {
+            "cmd": "Login",
+            "param": {
+                "User": {
+                    "Version": "0",
+                    "userName": username,
+                    "password": secret,
+                }
+            },
+        }
+    ]
+    login_resp = client.post(f"{api_base}?cmd=Login", json=login_payload)
+    login_resp.raise_for_status()
+    token = _extract_reolink_login_token(login_resp.text, secret=secret)
+
+    try:
+        nonce = uuid.uuid4().hex[:10]
+        safe_ch = quote(channel, safe="")
+        safe_tok = quote(token, safe="")
+        snap_resp = client.get(f"{api_base}?cmd=Snap&channel={safe_ch}&rs={nonce}&token={safe_tok}")
+        snap_resp.raise_for_status()
+        snap_bytes = snap_resp.content
+        _verify_decodable_image(snap_bytes, secret=secret)
+        return snap_bytes
+    finally:
+        with suppress(Exception):
+            safe_tok = quote(token, safe="")
+            client.post(
+                f"{api_base}?cmd=Logout&token={safe_tok}",
+                json=[{"cmd": "Logout", "param": {}}],
+            )
+
+
+def _probe_is_reolink_cgi(client: httpx.Client, *, scheme: str, netloc: str) -> bool:
+    """Check whether a bare camera host exposes Reolink's /cgi-bin/api.cgi Snap endpoint."""
+    try:
+        probe = client.get(f"{scheme}://{netloc}/cgi-bin/api.cgi?cmd=Snap&channel=0")
+    except (httpx.HTTPError, OSError):
+        return False
+    text_sample = probe.text[:300]
+    return '"cmd"' in text_sample and '"Snap"' in text_sample
+
+
 def _fetch_http_frame(
     source: CaptureSourceConfig,
     *,
@@ -108,7 +236,8 @@ def _fetch_http_frame(
 ) -> bytes:
     raw_url = source.source_url.strip()
     parsed = urlsplit(raw_url)
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+    scheme = parsed.scheme.lower()
+    if scheme not in {"http", "https"} or not parsed.netloc:
         raise CaptureError(
             f"HTTP camera source_url must use http:// or https://: {raw_url}",
             secret=source.secret,
@@ -125,27 +254,74 @@ def _fetch_http_frame(
             raise CaptureError("Bearer authentication requires a configured secret.")
         headers["Authorization"] = f"Bearer {source.secret}"
 
+    verify_tls = (
+        True if http_transport is not None else not _is_private_or_local_host(parsed.hostname)
+    )
+    host_only_netloc = parsed.netloc.rpartition("@")[2] or parsed.netloc
+
     try:
         with httpx.Client(
             timeout=HTTP_CAPTURE_TIMEOUT_SECONDS,
             follow_redirects=True,
+            verify=verify_tls,
             transport=http_transport,
         ) as client:
+            if _is_reolink_cgi_url(parsed):
+                channel = parse_qs(parsed.query).get("channel", ["0"])[0]
+                return _fetch_reolink_cgi_snapshot(
+                    client,
+                    scheme=scheme,
+                    netloc=host_only_netloc,
+                    channel=channel,
+                    username=source.auth_username,
+                    secret=source.secret,
+                )
+
             response = client.get(raw_url, auth=auth, headers=headers)
             response.raise_for_status()
             payload = response.content
+
+            try:
+                _verify_decodable_image(payload, secret=source.secret)
+                return payload
+            except CaptureError:
+                if parsed.path in ("", "/") and _probe_is_reolink_cgi(
+                    client,
+                    scheme=scheme,
+                    netloc=host_only_netloc,
+                ):
+                    return _fetch_reolink_cgi_snapshot(
+                        client,
+                        scheme=scheme,
+                        netloc=host_only_netloc,
+                        channel="0",
+                        username=source.auth_username,
+                        secret=source.secret,
+                    )
+
+                content_type = response.headers.get("content-type", "").lower()
+                if "text/html" in content_type or payload.lstrip().startswith((b"<!", b"<html")):
+                    raise CaptureError(
+                        "Camera URL returned an HTML web page instead of a still image. "
+                        "Enter the camera's snapshot URL (for example "
+                        "/cgi-bin/api.cgi?cmd=Snap&channel=0 or /cgi-bin/snapshot.cgi).",
+                        secret=source.secret,
+                    ) from None
+                raise
     except httpx.HTTPStatusError as exc:
         body_excerpt = exc.response.text.strip()[:300]
         detail = f"{exc} ({body_excerpt})" if body_excerpt else str(exc)
+        if exc.response.status_code == 401 and source.auth_type == "none":
+            detail += (
+                " — Camera requires authentication: select 'digest' or 'basic' "
+                "and enter your camera username and password."
+            )
         raise CaptureError(detail, secret=source.secret) from exc
     except (httpx.HTTPError, OSError) as exc:
         raise CaptureError(str(exc), secret=source.secret) from exc
 
-    _verify_decodable_image(payload, secret=source.secret)
-    return payload
 
-
-def _build_rtsp_url(source: CaptureSourceConfig) -> str:
+def _build_rtsp_url(source: CaptureSourceConfig, *, override_path: str | None = None) -> str:
     raw_url = source.source_url.strip()
     parsed = urlsplit(raw_url)
     if parsed.scheme.lower() not in {"rtsp", "rtsps"} or not parsed.netloc:
@@ -154,19 +330,25 @@ def _build_rtsp_url(source: CaptureSourceConfig) -> str:
             secret=source.secret,
         )
 
+    effective_path = override_path if override_path is not None else parsed.path
     if source.auth_type in ("basic", "digest") and source.auth_username:
         host_port = parsed.netloc.rpartition("@")[2]
         encoded_user = quote(source.auth_username, safe="")
         encoded_secret = quote(source.secret or "", safe="")
         authed_netloc = f"{encoded_user}:{encoded_secret}@{host_port}"
-        parts = (parsed.scheme, authed_netloc, parsed.path, parsed.query, parsed.fragment)
+        parts = (parsed.scheme, authed_netloc, effective_path, parsed.query, parsed.fragment)
         return urlunsplit(parts)
 
+    if override_path is not None:
+        return urlunsplit(
+            (parsed.scheme, parsed.netloc, effective_path, parsed.query, parsed.fragment)
+        )
     return raw_url
 
 
-def _fetch_rtsp_frame(source: CaptureSourceConfig) -> bytes:
-    ffmpeg_url = _build_rtsp_url(source)
+def _run_rtsp_ffmpeg_once(
+    ffmpeg_url: str, *, secret: str | None
+) -> subprocess.CompletedProcess[bytes]:
     cmd = [
         "ffmpeg",
         "-hide_banner",
@@ -187,7 +369,7 @@ def _fetch_rtsp_frame(source: CaptureSourceConfig) -> bytes:
         "pipe:1",
     ]
     try:
-        completed = subprocess.run(
+        return subprocess.run(
             cmd,
             capture_output=True,
             timeout=RTSP_CAPTURE_TIMEOUT_SECONDS,
@@ -196,20 +378,44 @@ def _fetch_rtsp_frame(source: CaptureSourceConfig) -> bytes:
     except subprocess.TimeoutExpired as exc:
         raise CaptureError(
             f"RTSP frame capture timed out after {RTSP_CAPTURE_TIMEOUT_SECONDS:.0f}s.",
-            secret=source.secret,
+            secret=secret,
         ) from exc
     except OSError as exc:
         raise CaptureError(
             f"Failed to execute ffmpeg for RTSP capture: {exc}",
-            secret=source.secret,
+            secret=secret,
         ) from exc
+
+
+def _fetch_rtsp_frame(source: CaptureSourceConfig) -> bytes:
+    parsed = urlsplit(source.source_url.strip())
+    primary_url = _build_rtsp_url(source)
+    completed = _run_rtsp_ffmpeg_once(primary_url, secret=source.secret)
+
+    # If a bare host URL (rtsp://192.168.1.2 or rtsp://192.168.1.2:554/) failed without 401,
+    # automatically try Reolink's codec-agnostic main stream path (/Preview_01_main).
+    if (completed.returncode != 0 or not completed.stdout) and parsed.path in ("", "/"):
+        stderr_preview = completed.stderr.decode("utf-8", errors="replace")
+        if "401 Unauthorized" not in stderr_preview:
+            fallback_url = _build_rtsp_url(source, override_path="/Preview_01_main")
+            fallback_completed = _run_rtsp_ffmpeg_once(fallback_url, secret=source.secret)
+            if fallback_completed.returncode == 0 and fallback_completed.stdout:
+                _verify_decodable_image(fallback_completed.stdout, secret=source.secret)
+                return fallback_completed.stdout
 
     if completed.returncode != 0 or not completed.stdout:
         stderr_text = completed.stderr.decode("utf-8", errors="replace").strip()
         sanitized_stderr = redact_sensitive_text(stderr_text, source.secret)
-        if ffmpeg_url != source.source_url:
-            sanitized_stderr = sanitized_stderr.replace(ffmpeg_url, "[REDACTED]")
+        if primary_url != source.source_url:
+            sanitized_stderr = sanitized_stderr.replace(primary_url, "[REDACTED]")
         reason = sanitized_stderr or f"ffmpeg exited with code {completed.returncode}"
+        if "401 Unauthorized" in stderr_text and (
+            source.auth_type == "none" or not source.auth_username
+        ):
+            reason += (
+                " (Camera requires authentication: set Authentication to 'digest' or 'basic' "
+                "and enter your camera username and password.)"
+            )
         raise CaptureError(f"RTSP frame capture failed: {reason}", secret=source.secret)
 
     _verify_decodable_image(completed.stdout, secret=source.secret)

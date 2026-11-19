@@ -23,12 +23,29 @@ def _validate_clean_source_url(value: str) -> str:
     cleaned = value.strip()
     if not cleaned:
         raise ValueError("source_url must not be empty")
+    authority_candidate = cleaned.split("://", 1)[-1].split("/", 1)[0]
+    if "@" in authority_candidate:
+        raise ValueError(
+            "Do not embed credentials in source_url; use auth_username and secret fields"
+        )
     parsed = urlsplit(cleaned)
     if parsed.username or parsed.password or "@" in parsed.netloc:
         raise ValueError(
             "Do not embed credentials in source_url; use auth_username and secret fields"
         )
     return cleaned
+
+
+def _normalize_source_url_for_type(source_type: SourceType | None, raw_url: str) -> str:
+    cleaned = _validate_clean_source_url(raw_url)
+    if "://" not in cleaned and source_type is not None:
+        default_scheme = {
+            "http": "http",
+            "rtsp": "rtsp",
+            "synthetic": "synthetic",
+        }[source_type]
+        cleaned = f"{default_scheme}://{cleaned.lstrip('/')}"
+    return _validate_clean_source_url(cleaned)
 
 
 def _validate_username(value: str) -> str:
@@ -250,6 +267,11 @@ class CameraCreate(BaseModel):
     def _check_interval(cls, value: int) -> int:
         return _validate_interval_seconds(value)
 
+    @model_validator(mode="after")
+    def _normalize_url_scheme(self) -> Self:
+        self.source_url = _normalize_source_url_for_type(self.source_type, self.source_url)
+        return self
+
 
 class CameraUpdate(BaseModel):
     """Admin payload to modify an existing camera's configuration or schedule."""
@@ -295,6 +317,12 @@ class CameraUpdate(BaseModel):
             return None
         return _validate_interval_seconds(value)
 
+    @model_validator(mode="after")
+    def _normalize_optional_url_scheme(self) -> Self:
+        if self.source_url is not None and self.source_type is not None:
+            self.source_url = _normalize_source_url_for_type(self.source_type, self.source_url)
+        return self
+
 
 class CameraConnectionTestRequest(BaseModel):
     """In-memory live probe payload before persisting a camera."""
@@ -316,6 +344,11 @@ class CameraConnectionTestRequest(BaseModel):
     @classmethod
     def _check_timezone(cls, value: str) -> str:
         return validate_iana_timezone(value)
+
+    @model_validator(mode="after")
+    def _normalize_probe_url_scheme(self) -> Self:
+        self.source_url = _normalize_source_url_for_type(self.source_type, self.source_url)
+        return self
 
 
 class CameraProbeOut(BaseModel):
