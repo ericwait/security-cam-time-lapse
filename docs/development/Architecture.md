@@ -63,4 +63,6 @@ behavioral toggles `(decision 2026-11-18, bootstrap)`:
 `Admin` users can point each tier individually to any mounted container volume
 path via **Admin Console → Storage & Settings**, which verifies write access and
 automatically migrates existing files without rewriting relative database paths
-`(decision 2026-11-18, storage-paths)`.
+`(decision 2026-11-18, storage-paths)`. See
+[Storage-and-Migration.md](Storage-and-Migration.md) for step-by-step Docker
+Compose mount and live migration instructions.

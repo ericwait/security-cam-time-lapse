@@ -26,6 +26,7 @@ in a parenthetical example at most.
 | `design/Timelapse-Modes-and-Storage.md` | How do capture, storage, and playback modes behave? | Capture contract, original + preview dual storage, hybrid player + ephemeral exports, Modes 1–3 |
 | `development/Architecture.md` | How is the system built? | Container topology, FastAPI/SQLite/FFmpeg/React stack, credential encryption, `/data` layout |
 | `development/Getting-Started.md` | How do I run this locally? | Prerequisites, `.env` bootstrap, `just dev`, commit hooks, resetting |
+| `development/Storage-and-Migration.md` | How do I move captures to another drive or NAS? | `docker-compose.override.yml` bind mounts, `uid=1000` permissions, live Web UI file migration |
 | `development/Testing.md` | How do we verify changes? | Three test tiers, acceptance-first workflow, guardian suites, a11y gate |
 | `decisions/README.md` | What was decided, and where? | Discoverability index for inline `(decision YYYY-MM-DD, ...)` stamps |
 | `archive/README.md` | What used to be true? | Completed one-time plans, kept for rationale, stripped of authority |

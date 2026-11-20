@@ -77,6 +77,7 @@ anything irreversible.
 ## Where to go next
 
 - Architecture and storage layout: [Architecture.md](Architecture.md).
+- Moving storage to an external drive or NAS: [Storage-and-Migration.md](Storage-and-Migration.md).
 - Running and writing tests: [Testing.md](Testing.md).
 - Full documentation map: [../README.md](../README.md).
 - Agent-facing conventions and gotchas: `../../CLAUDE.md` at the repository
