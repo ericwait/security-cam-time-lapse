@@ -22,7 +22,7 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v2
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just lint
@@ -31,7 +31,7 @@ jobs:
     name: Type check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v2
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just typecheck
@@ -40,7 +40,7 @@ jobs:
     name: Schema drift
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v2
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just schema-drift
@@ -49,7 +49,7 @@ jobs:
     name: Unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v2
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just test unit
@@ -58,7 +58,7 @@ jobs:
     name: Integration tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v2
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just test integration
@@ -67,7 +67,7 @@ jobs:
     name: Compute version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: gittools/actions/gitversion/setup@v3
@@ -81,7 +81,7 @@ jobs:
     name: Validate ops artifacts
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install actionlint
         run: |
           curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash | bash -s -- 1.7.12
@@ -104,7 +104,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.base_ref == 'main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: extractions/setup-just@v2
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just dev
@@ -115,7 +115,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' || github.base_ref == 'main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t security-cam-time-lapse:scan .
       - uses: aquasecurity/trivy-action@0.28.0
         with:
