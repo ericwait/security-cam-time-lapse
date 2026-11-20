@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just lint
 
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just typecheck
 
@@ -41,7 +41,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just schema-drift
 
@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just test unit
 
@@ -59,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just test integration
 
@@ -105,7 +105,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.base_ref == 'main'
     steps:
       - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v2
+      - uses: extractions/setup-just@v4
       - run: cp .env.example .env && sed -i "s/^APP_SECRET_KEY=$/APP_SECRET_KEY=ci-dummy-secret-key-0000000000000000/" .env && sed -i "s/^BOOTSTRAP_ADMIN_PASSWORD=$/BOOTSTRAP_ADMIN_PASSWORD=ci-dummy-admin-pass/" .env
       - run: just dev
       - run: just e2e
