@@ -3,7 +3,7 @@
 # ==============================================================================
 # Stage 1: frontend-dev — Vite dev server + frontend lint/typecheck/unit runner
 # ==============================================================================
-FROM node:22-bookworm-slim AS frontend-dev
+FROM node:26-bookworm-slim AS frontend-dev
 
 RUN apt-get update \
     && apt-get upgrade -y \
