@@ -29,7 +29,7 @@ RUN npm run build
 # ==============================================================================
 # Stage 3: python-base — Patched Python 3.13 + FFmpeg + uv + non-root appuser
 # ==============================================================================
-FROM python:3.13-slim-bookworm AS python-base
+FROM python:3.15-slim-bookworm AS python-base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
