@@ -53,6 +53,7 @@ Start at [`docs/README.md`](docs/README.md):
   [`Timelapse-Modes-and-Storage.md`](docs/design/Timelapse-Modes-and-Storage.md)
 - **Development (how):** [`Architecture.md`](docs/development/Architecture.md),
   [`Getting-Started.md`](docs/development/Getting-Started.md),
+  [`Storage-and-Migration.md`](docs/development/Storage-and-Migration.md),
   [`Testing.md`](docs/development/Testing.md)
 - **Roadmap & Decisions:** [`Implementation-Plan.md`](docs/Implementation-Plan.md),
   [`decisions/README.md`](docs/decisions/README.md)
